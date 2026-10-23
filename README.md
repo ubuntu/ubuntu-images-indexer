@@ -50,10 +50,11 @@ directly; ubimi never proxies object bytes.
 
 The first path segment of a request selects the container and the remainder is
 the object prefix, mirroring the Swift URL layout
-(`{public_url}/{container}/{object}`). An index listing also allows legacy URLs
-to be migrated with ordered `[[route]]` rules matched on host and path prefix,
-where the target may reference `{path}` (the URI remainder) and `{container}`
-(the first path segment).
+(`{public_url}/{container}/{object}`). The in-memory index is consulted first;
+only when it has no matching object or listing are the ordered `[[route]]` rules
+tried. Those rules match on host and path prefix, allowing legacy URLs to be
+migrated to the current layout, where the target may reference `{path}` (the URI
+remainder) and `{container}` (the first path segment).
 
 ## Testing
 

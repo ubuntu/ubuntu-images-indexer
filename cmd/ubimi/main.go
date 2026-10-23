@@ -48,7 +48,9 @@ func run() error {
 		idx.Run(ctx, st, time.Duration(cfg.Index.RefreshInterval))
 	}()
 
-	handler := router.Handler(cfg.Routes, server.New(idx, st))
+	// The in-memory index is the primary path; the redirect farm only handles
+	// requests the index knows nothing about.
+	handler := server.New(idx, st, router.Handler(cfg.Routes, http.NotFoundHandler()))
 	srv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           handler,

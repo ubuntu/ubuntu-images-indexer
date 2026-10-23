@@ -48,7 +48,7 @@ func newServer(t *testing.T) *Server {
 	if err := idx.Refresh(context.Background(), st); err != nil {
 		t.Fatal(err)
 	}
-	return New(idx, st)
+	return New(idx, st, http.NotFoundHandler())
 }
 
 func TestObjectRedirect(t *testing.T) {
@@ -96,6 +96,36 @@ func TestNotFound(t *testing.T) {
 	newServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/nope", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestFallbackOnIndexMiss(t *testing.T) {
+	var called bool
+	fallback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusTeapot)
+	})
+	st := fakeStorage{objects: map[string][]storage.Object{"images": {{Name: "a.txt"}}}}
+	idx := index.New()
+	if err := idx.Refresh(context.Background(), st); err != nil {
+		t.Fatal(err)
+	}
+	s := New(idx, st, fallback)
+
+	// A hit is served from the index and must not reach the fallback.
+	called = false
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/a.txt", nil))
+	if rec.Code != http.StatusFound || called {
+		t.Errorf("index hit: status = %d, fallback called = %v; want 302, false", rec.Code, called)
+	}
+
+	// A miss is handed to the fallback.
+	called = false
+	rec = httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unknown/x", nil))
+	if rec.Code != http.StatusTeapot || !called {
+		t.Errorf("index miss: status = %d, fallback called = %v; want 418, true", rec.Code, called)
 	}
 }
 

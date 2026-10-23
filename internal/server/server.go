@@ -19,15 +19,18 @@ var tmplFS embed.FS
 
 var tmpl = template.Must(template.ParseFS(tmplFS, "index.html.tmpl"))
 
-// Server serves the index for a single Storage.
+// Server serves the index for a single Storage, falling back to next when the
+// index has no match (for example, the legacy redirect farm).
 type Server struct {
-	idx *index.Index
-	st  storage.Storage
+	idx  *index.Index
+	st   storage.Storage
+	next http.Handler
 }
 
-// New returns a Server reading from idx and linking through st.
-func New(idx *index.Index, st storage.Storage) *Server {
-	return &Server{idx: idx, st: st}
+// New returns a Server reading from idx, linking through st and handing
+// unmatched requests to next.
+func New(idx *index.Index, st storage.Storage, next http.Handler) *Server {
+	return &Server{idx: idx, st: st, next: next}
 }
 
 type entry struct {
@@ -54,7 +57,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	clean := strings.Trim(r.URL.Path, "/")
 	container, prefix, _ := strings.Cut(clean, "/")
 	if container == "" {
-		http.NotFound(w, r)
+		s.next.ServeHTTP(w, r)
 		return
 	}
 
@@ -68,7 +71,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	files, dirs := s.idx.Children(container, prefix)
 	if len(files) == 0 && len(dirs) == 0 {
-		http.NotFound(w, r)
+		s.next.ServeHTTP(w, r)
 		return
 	}
 
