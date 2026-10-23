@@ -6,17 +6,28 @@ autoindex feature, against a more modern Object Storage.
 
 ## Architecture
 
-This program is not intended to serve the bytes stored on that object storage,
-but rather simply points to them.
+Over HTTP, this program is not intended to serve the bytes stored on that
+object storage, but rather simply points to them. An optional rsync listener,
+served on a separate port, instead streams the object bytes for mirroring.
 Intended deployement is as follow:
 ```
+        http clients
+             |
+             V
         ------------ HAProxy -----------
         |                              |
 frontend filtering /images/      default frontend
         |                              |
         V                              V
-    RadosGW <------ indexes -------- ubimi
+    RadosGW <------ indexes -------- ubimi <---- rsync clients
+    |                                         (rsync://:873)
+    |          serves bytes (rsync)
+    +---------------------------------->
 ```
+
+ubimi indexes RadosGW over the Swift API; HTTP clients are then redirected
+straight to RadosGW, while rsync clients (on a separate listener) are served
+the object bytes through ubimi.
 
 The architecture of ubimi keeps the swift calls abstracted behind a generic
 "storage" interface, allowing easy swapping of the Object Storage backend.
@@ -36,8 +47,27 @@ go build ./cmd/ubimi
 ./ubimi -config config.toml
 ```
 
-The only external dependency is the TOML parser; everything else is the Go
-standard library.
+Building requires a C toolchain (cgo), because the rsync support pulls in the
+`gokrazy/rsync` dependency chain (see below).
+
+## rsync listener
+
+ubimi can optionally also speak the rsync daemon protocol, exposing the index
+as a single read-only module whose top-level directories are the containers
+(backed by [`gokrazy/rsync`](https://github.com/gokrazy/rsync)):
+
+```sh
+# in config.toml
+[rsync]
+listen = ":873"
+module = "ubimi"
+
+rsync rsync://localhost:873/ubimi/images/...
+```
+
+Unlike the HTTP listener — which redirects clients to the object store — the
+rsync daemon has no redirect mechanism, so file transfers are streamed from the
+object store on demand. The `[rsync]` section is inert unless `listen` is set.
 
 ## Configuration
 

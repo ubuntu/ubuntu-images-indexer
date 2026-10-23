@@ -23,6 +23,13 @@ public_url = "https://images.example.com"
 [index]
 refresh_interval = "5m"
 
+# Optional rsync daemon listener. It exposes the whole index as a single
+# read-only module whose top-level directories are the containers. Unlike the
+# HTTP listener, it streams object bytes from the object store.
+[rsync]
+# listen = ":873"   # uncomment to enable
+module = "ubimi"
+
 # Optional redirect farm for legacy URLs. Rules are evaluated in order and
 # matched on host (exact, *.suffix, or any when empty). Each rule uses either a
 # path prefix (path) with {path}/{container} in the target, or a regular

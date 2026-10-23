@@ -16,7 +16,15 @@ type Config struct {
 	Listen  string        `toml:"listen"`
 	Storage StorageConfig `toml:"storage"`
 	Index   IndexConfig   `toml:"index"`
+	Rsync   RsyncConfig   `toml:"rsync"`
 	Routes  []Route       `toml:"route"`
+}
+
+// RsyncConfig enables an additional rsync daemon listener exposing the indexed
+// object store as a single module.
+type RsyncConfig struct {
+	Listen string `toml:"listen"` // empty disables the listener
+	Module string `toml:"module"` // module name, defaults to "ubimi"
 }
 
 // StorageConfig describes how to reach the Swift/RadosGW object store.
@@ -90,6 +98,9 @@ func (c *Config) applyDefaults() {
 		c.Index.RefreshInterval = Duration(5 * time.Minute)
 	}
 	c.Storage.PublicURL = strings.TrimRight(c.Storage.PublicURL, "/")
+	if c.Rsync.Listen != "" && c.Rsync.Module == "" {
+		c.Rsync.Module = "ubimi"
+	}
 	for i := range c.Routes {
 		if c.Routes[i].Status == 0 {
 			c.Routes[i].Status = 302

@@ -65,6 +65,12 @@ func run() error {
 		}
 	}()
 
+	if cfg.Rsync.Listen != "" {
+		if err := serveRsync(ctx, cfg.Rsync, idx, st, errCh); err != nil {
+			return err
+		}
+	}
+
 	select {
 	case err := <-errCh:
 		return err
