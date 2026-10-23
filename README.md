@@ -11,18 +11,17 @@ object storage, but rather simply points to them. An optional rsync listener,
 served on a separate port, instead streams the object bytes for mirroring.
 Intended deployement is as follow:
 ```
-        http clients
-             |
-             V
-        ------------ HAProxy -----------
-        |                              |
-frontend filtering /images/      default frontend
-        |                              |
-        V                              V
-    RadosGW <------ indexes -------- ubimi <---- rsync clients
-    |                                         (rsync://:873)
-    |          serves bytes (rsync)
-    +---------------------------------->
+                  http clients
+                       |
+                       V
+        +----------> HAProxy ------------------+
+        |                                      |
+frontend filtering /images/              default frontend
+   serves bytes (http)                         |
+        |                                      |
+        V      +<----- indexes --------<+      V
+    RadosGW <--|                        |--> ubimi <---- rsync clients
+               +>-serves bytes (rsync)->+               (rsync://:873)
 ```
 
 ubimi indexes RadosGW over the Swift API; HTTP clients are then redirected
