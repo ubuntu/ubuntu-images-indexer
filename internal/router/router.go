@@ -16,15 +16,44 @@ import (
 func Handler(rules []config.Route, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for _, rule := range rules {
-			if !matchHost(rule.Host, r.Host) || !matchPath(rule.Path, r.URL.Path) {
+			if !matchHost(rule.Host, r.Host) {
 				continue
 			}
-			target := expand(rule.Target, rule.Path, r.URL)
+			target, ok := resolve(rule, r.URL)
+			if !ok {
+				continue
+			}
+			if q := r.URL.RawQuery; q != "" && !strings.Contains(target, "?") {
+				target += "?" + q
+			}
 			http.Redirect(w, r, target, rule.Status)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// resolve returns the redirect target for a rule, or false if the request does
+// not match it. Regex rules use named capture groups; prefix rules use the
+// {path} and {container} placeholders.
+func resolve(rule config.Route, u *url.URL) (string, bool) {
+	if rule.Regexp != nil {
+		match := rule.Regexp.FindStringSubmatch(u.EscapedPath())
+		if match == nil {
+			return "", false
+		}
+		target := rule.Target
+		for i, name := range rule.Regexp.SubexpNames() {
+			if name != "" {
+				target = strings.ReplaceAll(target, "{"+name+"}", match[i])
+			}
+		}
+		return target, true
+	}
+	if !matchPath(rule.Path, u.Path) {
+		return "", false
+	}
+	return expand(rule.Target, rule.Path, u), true
 }
 
 // matchHost matches an exact hostname, a "*.suffix" wildcard, or any host when
@@ -55,15 +84,11 @@ func matchPath(prefix, path string) bool {
 }
 
 // expand fills {path} with the URI remainder and {container} with its first
-// segment, and carries over any query string. The path is kept in its escaped
-// form so that reserved characters survive the redirect.
+// segment. The path is kept in its escaped form so that reserved characters
+// survive the redirect.
 func expand(target, prefix string, u *url.URL) string {
 	remainder := strings.TrimPrefix(u.EscapedPath(), prefix)
 	out := strings.ReplaceAll(target, "{path}", remainder)
 	container, _, _ := strings.Cut(remainder, "/")
-	out = strings.ReplaceAll(out, "{container}", container)
-	if u.RawQuery != "" {
-		out += "?" + u.RawQuery
-	}
-	return out
+	return strings.ReplaceAll(out, "{container}", container)
 }

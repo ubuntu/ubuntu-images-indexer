@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -37,14 +38,22 @@ type IndexConfig struct {
 	RefreshInterval Duration `toml:"refresh_interval"`
 }
 
-// Route redirects requests matching a host and path prefix to a target URL.
-// Target may reference {path} (the URI remainder after the prefix) and
-// {container} (the first path segment).
+// Route redirects requests matching a host and either a path prefix (Path) or
+// a regular expression (Match) to a target URL. Exactly one of Path or Match
+// must be set.
+//
+// For prefix routes, Target may reference {path} (the URI remainder after the
+// prefix) and {container} (the first path segment). For regex routes, Match is
+// compiled with named capture groups that Target may reference as {name}.
 type Route struct {
 	Host   string `toml:"host"`
 	Path   string `toml:"path"`
+	Match  string `toml:"match"`
 	Target string `toml:"target"`
 	Status int    `toml:"status"`
+
+	// Regexp is the compiled form of Match, populated by Load.
+	Regexp *regexp.Regexp `toml:"-"`
 }
 
 // Duration is a time.Duration that unmarshals from a TOML string such as "5m".
@@ -105,9 +114,22 @@ func (c *Config) validate() error {
 	if u, err := url.Parse(s.PublicURL); err != nil || !u.IsAbs() {
 		return fmt.Errorf("storage.public_url %q must be an absolute URL", s.PublicURL)
 	}
-	for i, r := range c.Routes {
-		if r.Target == "" {
+	for i := range c.Routes {
+		r := &c.Routes[i]
+		switch {
+		case r.Target == "":
 			return fmt.Errorf("route %d: target is required", i)
+		case r.Path == "" && r.Match == "":
+			return fmt.Errorf("route %d: one of path or match is required", i)
+		case r.Path != "" && r.Match != "":
+			return fmt.Errorf("route %d: path and match are mutually exclusive", i)
+		}
+		if r.Match != "" {
+			re, err := regexp.Compile(r.Match)
+			if err != nil {
+				return fmt.Errorf("route %d: invalid match: %w", i, err)
+			}
+			r.Regexp = re
 		}
 	}
 	return nil

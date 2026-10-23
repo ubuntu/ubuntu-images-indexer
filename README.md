@@ -52,9 +52,15 @@ The first path segment of a request selects the container and the remainder is
 the object prefix, mirroring the Swift URL layout
 (`{public_url}/{container}/{object}`). The in-memory index is consulted first;
 only when it has no matching object or listing are the ordered `[[route]]` rules
-tried. Those rules match on host and path prefix, allowing legacy URLs to be
-migrated to the current layout, where the target may reference `{path}` (the URI
-remainder) and `{container}` (the first path segment).
+tried. Those rules match on host and either a path prefix or a regular
+expression, allowing legacy URLs to be migrated to the current layout:
+
+- a `path` prefix rule may reference `{path}` (the URI remainder) and
+  `{container}` (the first path segment) in its target;
+- a `match` rule is a regular expression whose named capture groups are
+  referenced as `{name}` in the target, so segments can be reordered, e.g.
+  `^/(?P<product>[^/]+)/releases/(?P<series>[^/]+)/?$` →
+  `https://images.ubuntu.com/images/{series}/{product}`.
 
 ## Testing
 

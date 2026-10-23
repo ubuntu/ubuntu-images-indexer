@@ -76,10 +76,46 @@ public_url = "images.example.com"
 [[route]]
 path = "/x/"
 `,
+		"invalid regex match": minimal + `
+[[route]]
+match = "["
+target = "https://images.example.com/{1}"
+`,
+		"both path and match": minimal + `
+[[route]]
+path = "/x/"
+match = "^/x$"
+target = "https://images.example.com/"
+`,
+		"neither path nor match": minimal + `
+[[route]]
+target = "https://images.example.com/"
+`,
 	}
 	for name, body := range cases {
 		if _, err := Load(write(t, body)); err == nil {
 			t.Errorf("%s: Load succeeded, want error", name)
 		}
+	}
+}
+
+func TestLoadCompilesRegexRoute(t *testing.T) {
+	cfg, err := Load(write(t, minimal+`
+[[route]]
+host   = "cdimage.ubuntu.com"
+match  = "^/(?P<product>[^/]+)/releases/(?P<series>[^/]+)/?$"
+target = "https://images.ubuntu.com/images/{series}/{product}"
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Routes) != 1 {
+		t.Fatalf("routes = %d, want 1", len(cfg.Routes))
+	}
+	if cfg.Routes[0].Regexp == nil {
+		t.Fatal("route Regexp was not compiled")
+	}
+	if cfg.Routes[0].Status != 302 {
+		t.Errorf("status = %d, want default 302", cfg.Routes[0].Status)
 	}
 }

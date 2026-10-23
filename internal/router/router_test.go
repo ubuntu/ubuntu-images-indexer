@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"testing"
 
 	"github.com/ubuntu/ubimi/internal/config"
@@ -53,7 +54,7 @@ func TestMatchPath(t *testing.T) {
 func TestExpand(t *testing.T) {
 	u, _ := url.Parse("/legacy/a/b%20c?x=1")
 	got := expand("https://images.example.com/{container}/{path}", "/legacy/", u)
-	if want := "https://images.example.com/a/a/b%20c?x=1"; got != want {
+	if want := "https://images.example.com/a/a/b%20c"; got != want {
 		t.Errorf("expand = %q, want %q", got, want)
 	}
 }
@@ -78,5 +79,50 @@ func TestHandlerRedirectAndFallthrough(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/other", nil))
 	if rec.Code != http.StatusTeapot {
 		t.Errorf("fallthrough status = %d, want 418", rec.Code)
+	}
+}
+
+func TestRegexRedirect(t *testing.T) {
+	rules := []config.Route{{
+		Host:   "cdimage.ubuntu.com",
+		Match:  `^/(?P<product>[^/]+)/releases/(?P<series>[^/]+)/?$`,
+		Regexp: regexp.MustCompile(`^/(?P<product>[^/]+)/releases/(?P<series>[^/]+)/?$`),
+		Target: "https://images.ubuntu.com/images/{series}/{product}",
+		Status: 302,
+	}}
+	h := Handler(rules, http.NotFoundHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "/ubuntu/releases/24.04", nil)
+	req.Host = "cdimage.ubuntu.com"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 302 {
+		t.Fatalf("status = %d, want 302", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "https://images.ubuntu.com/images/24.04/ubuntu" {
+		t.Errorf("Location = %q", loc)
+	}
+
+	// Wrong host must not match the rule.
+	req = httptest.NewRequest(http.MethodGet, "/ubuntu/releases/24.04", nil)
+	req.Host = "other.example.com"
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("host mismatch status = %d, want 404", rec.Code)
+	}
+}
+
+func TestRedirectCarriesQuery(t *testing.T) {
+	rules := []config.Route{{
+		Match:  `^/get/(?P<name>[^/]+)$`,
+		Regexp: regexp.MustCompile(`^/get/(?P<name>[^/]+)$`),
+		Target: "https://images.example.com/{name}",
+		Status: 302,
+	}}
+	rec := httptest.NewRecorder()
+	Handler(rules, http.NotFoundHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/get/a?x=1&y=2", nil))
+	if loc := rec.Header().Get("Location"); loc != "https://images.example.com/a?x=1&y=2" {
+		t.Errorf("Location = %q", loc)
 	}
 }
