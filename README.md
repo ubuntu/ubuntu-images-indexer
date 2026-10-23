@@ -28,3 +28,35 @@ farm, facilitating the transition from previous legacy storage solution.
 
 For local development, the [`saio`](https://hub.docker.com/r/openstackswift/saio)
 Docker images can provide a dead simple throw-away `swift` interface.
+
+## Building and running
+
+```sh
+go build ./cmd/ubimi
+./ubimi -config config.toml
+```
+
+The only external dependency is the TOML parser; everything else is the Go
+standard library.
+
+## Configuration
+
+See [`config.example.toml`](config.example.toml) for a full example. ubimi
+authenticates against Keystone v3, discovers the `object-store` (Swift) endpoint
+from the service catalog, and crawls the configured containers into an
+in-memory index. Listing links and redirects are built from the required
+`storage.public_url` so that clients always reach the object store directly;
+ubimi never proxies object bytes.
+
+The first path segment of a request selects the container and the remainder is
+the object prefix, mirroring the Swift URL layout
+(`{public_url}/{container}/{object}`). An index listing also allows legacy URLs
+to be migrated with ordered `[[route]]` rules matched on host and path prefix,
+where the target may reference `{path}` (the URI remainder) and `{container}`
+(the first path segment).
+
+## Testing
+
+```sh
+go test ./...
+```

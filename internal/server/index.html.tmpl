@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Index of /{{.Container}}/{{.Prefix}}</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: .25rem .5rem; border-bottom: 1px solid #ddd; }
+  th { font-weight: 600; }
+  td.size, td.modified { white-space: nowrap; color: #555; width: 1%; }
+  a { text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<h1>Index of /{{.Container}}/{{.Prefix}}</h1>
+<table>
+<thead><tr><th>Name</th><th>Size</th><th>Last modified</th></tr></thead>
+<tbody>
+{{if .Parent}}<tr><td><a href="{{.Parent}}">../</a></td><td class="size"></td><td class="modified"></td></tr>{{end}}
+{{range .Dirs}}<tr><td><a href="{{.URL}}">{{.Name}}/</a></td><td class="size">-</td><td class="modified"></td></tr>
+{{end}}
+{{range .Files}}<tr><td><a href="{{.URL}}">{{.Name}}</a></td><td class="size">{{.Size}}</td><td class="modified">{{.Modified}}</td></tr>
+{{end}}
+</tbody>
+</table>
+</body>
+</html>
