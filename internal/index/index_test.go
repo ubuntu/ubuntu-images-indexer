@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/ubuntu/ubimi/internal/storage"
@@ -10,12 +11,21 @@ import (
 
 type fakeStorage struct {
 	objects map[string][]storage.Object
-	err     error
+	listErr map[string]error // per-container List failures
+}
+
+func (f fakeStorage) Containers(_ context.Context) ([]string, error) {
+	names := make([]string, 0, len(f.objects))
+	for name := range f.objects {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names, nil
 }
 
 func (f fakeStorage) List(_ context.Context, container string, fn func(storage.Object) error) error {
-	if f.err != nil {
-		return f.err
+	if err := f.listErr[container]; err != nil {
+		return err
 	}
 	for _, o := range f.objects[container] {
 		if err := fn(o); err != nil {
@@ -38,7 +48,7 @@ func newStore() fakeStorage {
 }
 
 func TestRefreshSortsAndChildren(t *testing.T) {
-	idx := New([]string{"images"})
+	idx := New()
 	if err := idx.Refresh(context.Background(), newStore()); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
@@ -66,7 +76,7 @@ func TestRefreshSortsAndChildren(t *testing.T) {
 }
 
 func TestLookup(t *testing.T) {
-	idx := New([]string{"images"})
+	idx := New()
 	if err := idx.Refresh(context.Background(), newStore()); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
@@ -79,17 +89,33 @@ func TestLookup(t *testing.T) {
 }
 
 func TestRefreshRetainsOnError(t *testing.T) {
-	idx := New([]string{"images"})
+	idx := New()
 	if err := idx.Refresh(context.Background(), newStore()); err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
 
-	broken := fakeStorage{objects: newStore().objects, err: errors.New("boom")}
+	broken := fakeStorage{
+		objects: newStore().objects,
+		listErr: map[string]error{"images": errors.New("boom")},
+	}
 	if err := idx.Refresh(context.Background(), broken); err == nil {
 		t.Fatal("Refresh = nil, want error")
 	}
 	if _, ok := idx.Lookup("images", "a.txt"); !ok {
-		t.Error("previous snapshot was not retained after a failed refresh")
+		t.Error("previous snapshot was not retained after a failed container listing")
+	}
+}
+
+func TestRefreshDropsRemovedContainers(t *testing.T) {
+	idx := New()
+	if err := idx.Refresh(context.Background(), newStore()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if err := idx.Refresh(context.Background(), fakeStorage{objects: map[string][]storage.Object{}}); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if _, ok := idx.Lookup("images", "a.txt"); ok {
+		t.Error("container that no longer exists is still indexed")
 	}
 }
 

@@ -20,9 +20,6 @@ region         = "RegionOne"
 # This is never taken from the Keystone catalog.
 public_url = "https://images.example.com"
 
-# Containers to crawl into the in-memory index.
-containers = ["images"]
-
 [index]
 refresh_interval = "5m"
 

@@ -18,24 +18,28 @@ import (
 // Index holds a snapshot of every crawled container, keyed by container name
 // and sorted by object name. It is safe for concurrent use.
 type Index struct {
-	containers []string
-
 	mu   sync.RWMutex
 	snap map[string][]storage.Object
 }
 
-// New returns an empty index for the given containers.
-func New(containers []string) *Index {
-	return &Index{containers: containers, snap: make(map[string][]storage.Object, len(containers))}
+// New returns an empty index.
+func New() *Index {
+	return &Index{snap: make(map[string][]storage.Object)}
 }
 
-// Refresh crawls every container and atomically replaces the snapshot.
-// Containers that fail to list retain their previous contents; the combined
-// errors are returned but do not disturb the rest of the index.
+// Refresh discovers every container, crawls the objects in each and atomically
+// replaces the snapshot. Containers that fail to list retain their previous
+// contents; the combined errors are returned but do not disturb the rest of
+// the index.
 func (i *Index) Refresh(ctx context.Context, st storage.Storage) error {
-	next := make(map[string][]storage.Object, len(i.containers))
+	containers, err := st.Containers(ctx)
+	if err != nil {
+		return fmt.Errorf("list containers: %w", err)
+	}
+
+	next := make(map[string][]storage.Object, len(containers))
 	var errs []error
-	for _, c := range i.containers {
+	for _, c := range containers {
 		var objs []storage.Object
 		err := st.List(ctx, c, func(o storage.Object) error {
 			objs = append(objs, o)
@@ -50,7 +54,7 @@ func (i *Index) Refresh(ctx context.Context, st storage.Storage) error {
 	}
 
 	i.mu.Lock()
-	for _, c := range i.containers {
+	for _, c := range containers {
 		if _, ok := next[c]; !ok {
 			next[c] = i.snap[c]
 		}

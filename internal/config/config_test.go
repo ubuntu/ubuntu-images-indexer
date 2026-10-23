@@ -23,7 +23,6 @@ user = "ubimi"
 password = "secret"
 project = "images"
 public_url = "https://images.example.com/"
-containers = ["images"]
 `
 
 func TestLoadDefaults(t *testing.T) {
@@ -64,15 +63,6 @@ auth_url = "https://k/v3"
 user = "u"
 password = "p"
 project = "pr"
-containers = ["c"]
-`,
-		"missing containers": `
-[storage]
-auth_url = "https://k/v3"
-user = "u"
-password = "p"
-project = "pr"
-public_url = "https://i"
 `,
 		"relative public_url": `
 [storage]
@@ -81,7 +71,6 @@ user = "u"
 password = "p"
 project = "pr"
 public_url = "images.example.com"
-containers = ["c"]
 `,
 		"route without target": minimal + `
 [[route]]

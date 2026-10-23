@@ -15,6 +15,14 @@ type fakeStorage struct {
 	objects map[string][]storage.Object
 }
 
+func (f fakeStorage) Containers(_ context.Context) ([]string, error) {
+	names := make([]string, 0, len(f.objects))
+	for name := range f.objects {
+		names = append(names, name)
+	}
+	return names, nil
+}
+
 func (f fakeStorage) List(_ context.Context, container string, fn func(storage.Object) error) error {
 	for _, o := range f.objects[container] {
 		if err := fn(o); err != nil {
@@ -36,7 +44,7 @@ func newServer(t *testing.T) *Server {
 			{Name: "dir/b.txt", Size: 2048},
 		},
 	}}
-	idx := index.New([]string{"images"})
+	idx := index.New()
 	if err := idx.Refresh(context.Background(), st); err != nil {
 		t.Fatal(err)
 	}

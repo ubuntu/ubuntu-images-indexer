@@ -40,7 +40,7 @@ func run() error {
 	defer stop()
 
 	st := storage.New(cfg.Storage)
-	idx := index.New(cfg.Storage.Containers)
+	idx := index.New()
 	go func() {
 		if err := idx.Refresh(ctx, st); err != nil {
 			slog.Warn("initial index refresh", "err", err)

@@ -18,6 +18,8 @@ type Object struct {
 
 // Storage is the read-only view of an object store that ubimi needs.
 type Storage interface {
+	// Containers returns the names of every container in the account.
+	Containers(ctx context.Context) ([]string, error)
 	// List calls fn for every object in container, in lexicographic order.
 	List(ctx context.Context, container string, fn func(Object) error) error
 	// URL returns the public URL a client should be sent to for an object.

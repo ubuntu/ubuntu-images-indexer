@@ -29,8 +29,7 @@ type StorageConfig struct {
 	Region        string `toml:"region"`
 	// PublicURL is the externally reachable base used to build listing links
 	// and redirects. It is required and never taken from the Keystone catalog.
-	PublicURL  string   `toml:"public_url"`
-	Containers []string `toml:"containers"`
+	PublicURL string `toml:"public_url"`
 }
 
 // IndexConfig controls the background crawl of the object store.
@@ -102,8 +101,6 @@ func (c *Config) validate() error {
 		return fmt.Errorf("storage.project is required")
 	case s.PublicURL == "":
 		return fmt.Errorf("storage.public_url is required")
-	case len(s.Containers) == 0:
-		return fmt.Errorf("storage.containers must list at least one container")
 	}
 	if u, err := url.Parse(s.PublicURL); err != nil || !u.IsAbs() {
 		return fmt.Errorf("storage.public_url %q must be an absolute URL", s.PublicURL)

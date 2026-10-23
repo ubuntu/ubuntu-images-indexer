@@ -43,10 +43,10 @@ standard library.
 
 See [`config.example.toml`](config.example.toml) for a full example. ubimi
 authenticates against Keystone v3, discovers the `object-store` (Swift) endpoint
-from the service catalog, and crawls the configured containers into an
-in-memory index. Listing links and redirects are built from the required
-`storage.public_url` so that clients always reach the object store directly;
-ubimi never proxies object bytes.
+from the service catalog, enumerates every container in the account, and crawls
+them into an in-memory index. Listing links and redirects are built from the
+required `storage.public_url` so that clients always reach the object store
+directly; ubimi never proxies object bytes.
 
 The first path segment of a request selects the container and the remainder is
 the object prefix, mirroring the Swift URL layout

@@ -41,6 +41,25 @@ type swiftObject struct {
 	Hash         string `json:"hash"`
 }
 
+// Containers implements Storage. It lists every container in the account.
+func (s *Swift) Containers(ctx context.Context) ([]string, error) {
+	_, endpoint, err := s.ks.credentials(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var listed []struct {
+		Name string `json:"name"`
+	}
+	if err := s.get(ctx, endpoint+"?format=json", &listed); err != nil {
+		return nil, fmt.Errorf("list containers: %w", err)
+	}
+	names := make([]string, len(listed))
+	for i, c := range listed {
+		names[i] = c.Name
+	}
+	return names, nil
+}
+
 // List implements Storage. It pages through the container listing using the
 // Swift marker mechanism and calls fn for every object encountered.
 func (s *Swift) List(ctx context.Context, container string, fn func(Object) error) error {
@@ -62,44 +81,51 @@ func (s *Swift) List(ctx context.Context, container string, fn func(Object) erro
 	}
 }
 
-// page fetches one page of the listing, retrying once after re-authenticating
-// if the token has expired.
+// page fetches one page of a container listing.
 func (s *Swift) page(ctx context.Context, container, marker string) ([]swiftObject, error) {
+	_, endpoint, err := s.ks.credentials(ctx)
+	if err != nil {
+		return nil, err
+	}
+	u := endpoint + "/" + url.PathEscape(container) + "?format=json&limit=" + fmt.Sprint(pageSize)
+	if marker != "" {
+		u += "&marker=" + url.QueryEscape(marker)
+	}
+	var objs []swiftObject
+	if err := s.get(ctx, u, &objs); err != nil {
+		return nil, fmt.Errorf("list %s: %w", container, err)
+	}
+	return objs, nil
+}
+
+// get performs an authenticated GET and decodes the JSON response, retrying
+// once after re-authenticating if the token has expired.
+func (s *Swift) get(ctx context.Context, u string, out any) error {
 	for attempt := 0; ; attempt++ {
-		token, endpoint, err := s.ks.credentials(ctx)
+		token, _, err := s.ks.credentials(ctx)
 		if err != nil {
-			return nil, err
-		}
-		u := endpoint + "/" + url.PathEscape(container) + "?format=json&limit=" + fmt.Sprint(pageSize)
-		if marker != "" {
-			u += "&marker=" + url.QueryEscape(marker)
+			return err
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		req.Header.Set("X-Auth-Token", token)
 
 		resp, err := s.client.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("list %s: %w", container, err)
+			return err
 		}
 		if resp.StatusCode == http.StatusUnauthorized && attempt == 0 {
 			resp.Body.Close()
 			s.ks.invalidate()
 			continue
 		}
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
-			return nil, fmt.Errorf("list %s: unexpected status %s", container, resp.Status)
+			return fmt.Errorf("unexpected status %s", resp.Status)
 		}
-		var objs []swiftObject
-		err = json.NewDecoder(resp.Body).Decode(&objs)
-		resp.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("list %s: decode: %w", container, err)
-		}
-		return objs, nil
+		return json.NewDecoder(resp.Body).Decode(out)
 	}
 }
 
