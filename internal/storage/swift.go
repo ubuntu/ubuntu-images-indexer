@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,18 +19,25 @@ const pageSize = 1000
 // Swift is a Storage backed by a Swift-compatible object store (RadosGW),
 // authenticated through Keystone v3.
 type Swift struct {
-	ks        *keystone
-	client    *http.Client
-	publicURL string
+	ks           *keystone
+	client       *http.Client
+	streamClient *http.Client
+	publicURL    string
 }
 
 // New returns a Swift storage for the given configuration.
 func New(cfg config.StorageConfig) *Swift {
 	client := &http.Client{Timeout: 30 * time.Second}
+	// streamClient has no overall timeout so that large object bodies can be
+	// streamed without being cut off; only the response headers are bounded.
+	streamClient := &http.Client{
+		Transport: &http.Transport{ResponseHeaderTimeout: 30 * time.Second},
+	}
 	return &Swift{
-		ks:        newKeystone(client, cfg),
-		client:    client,
-		publicURL: strings.TrimRight(cfg.PublicURL, "/"),
+		ks:           newKeystone(client, cfg),
+		client:       client,
+		streamClient: streamClient,
+		publicURL:    strings.TrimRight(cfg.PublicURL, "/"),
 	}
 }
 
@@ -131,11 +139,51 @@ func (s *Swift) get(ctx context.Context, u string, out any) error {
 
 // URL implements Storage. It builds a public URL, escaping each path segment.
 func (s *Swift) URL(container, object string) string {
-	segs := strings.Split(strings.Trim(container, "/")+"/"+strings.TrimLeft(object, "/"), "/")
+	return s.publicURL + "/" + escapePath(strings.Trim(container, "/")+"/"+strings.TrimLeft(object, "/"))
+}
+
+// Open implements Storage. It streams an object's contents from offset,
+// retrying once after re-authenticating if the token has expired.
+func (s *Swift) Open(ctx context.Context, container, object string, offset int64) (io.ReadCloser, error) {
+	for attempt := 0; ; attempt++ {
+		token, endpoint, err := s.ks.credentials(ctx)
+		if err != nil {
+			return nil, err
+		}
+		u := endpoint + "/" + escapePath(container) + "/" + escapePath(object)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("X-Auth-Token", token)
+		if offset > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+		}
+
+		resp, err := s.streamClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("open %s/%s: %w", container, object, err)
+		}
+		if resp.StatusCode == http.StatusUnauthorized && attempt == 0 {
+			resp.Body.Close()
+			s.ks.invalidate()
+			continue
+		}
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+			resp.Body.Close()
+			return nil, fmt.Errorf("open %s/%s: unexpected status %s", container, object, resp.Status)
+		}
+		return resp.Body, nil
+	}
+}
+
+// escapePath escapes each slash-separated segment of p, preserving separators.
+func escapePath(p string) string {
+	segs := strings.Split(p, "/")
 	for i := range segs {
 		segs[i] = url.PathEscape(segs[i])
 	}
-	return s.publicURL + "/" + strings.Join(segs, "/")
+	return strings.Join(segs, "/")
 }
 
 func (o swiftObject) toObject() Object {

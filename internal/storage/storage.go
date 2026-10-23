@@ -4,6 +4,7 @@ package storage
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
@@ -22,6 +23,8 @@ type Storage interface {
 	Containers(ctx context.Context) ([]string, error)
 	// List calls fn for every object in container, in lexicographic order.
 	List(ctx context.Context, container string, fn func(Object) error) error
+	// Open streams an object's contents starting at offset.
+	Open(ctx context.Context, container, object string, offset int64) (io.ReadCloser, error)
 	// URL returns the public URL a client should be sent to for an object.
 	URL(container, object string) string
 }

@@ -3,8 +3,10 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,10 +36,13 @@ func TestToObject(t *testing.T) {
 	}
 }
 
-// TestAuthDiscoveryAndListing exercises the full path against a fake Keystone
-// and Swift endpoint: token issuance, catalog discovery, container enumeration
-// and object listing.
-func TestAuthDiscoveryAndListing(t *testing.T) {
+const testContent = "hello world"
+
+// newTestSwift starts a fake Keystone and Swift endpoint and returns a Swift
+// storage pointed at them. The fake serves one container "images" containing
+// "a.txt".
+func newTestSwift(t *testing.T) *Swift {
+	t.Helper()
 	var base string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v3/auth/tokens", func(w http.ResponseWriter, r *http.Request) {
@@ -74,14 +79,26 @@ func TestAuthDiscoveryAndListing(t *testing.T) {
 			return
 		}
 		json.NewEncoder(w).Encode([]map[string]any{
-			{"name": "a.txt", "bytes": 10, "content_type": "text/plain", "last_modified": "2024-01-02T03:04:05.000000", "hash": "h"},
+			{"name": "a.txt", "bytes": len(testContent), "content_type": "text/plain", "last_modified": "2024-01-02T03:04:05.000000", "hash": "h"},
 		})
 	})
+	mux.HandleFunc("/swift/images/a.txt", func(w http.ResponseWriter, r *http.Request) {
+		if !auth(w, r) {
+			return
+		}
+		http.ServeContent(w, r, "a.txt", time.Time{}, strings.NewReader(testContent))
+	})
 	srv := httptest.NewServer(mux)
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 	base = srv.URL
 
-	s := New(config.StorageConfig{AuthURL: base + "/v3", User: "u", Password: "p", Project: "pr", PublicURL: "https://pub"})
+	return New(config.StorageConfig{AuthURL: base + "/v3", User: "u", Password: "p", Project: "pr", PublicURL: "https://pub"})
+}
+
+// TestAuthDiscoveryAndListing exercises token issuance, catalog discovery,
+// container enumeration and object listing.
+func TestAuthDiscoveryAndListing(t *testing.T) {
+	s := newTestSwift(t)
 	ctx := context.Background()
 
 	containers, err := s.Containers(ctx)
@@ -96,7 +113,39 @@ func TestAuthDiscoveryAndListing(t *testing.T) {
 	if err := s.List(ctx, "images", func(o Object) error { got = append(got, o); return nil }); err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(got) != 1 || got[0].Name != "a.txt" || got[0].Size != 10 {
-		t.Errorf("objects = %+v, want one a.txt of size 10", got)
+	if len(got) != 1 || got[0].Name != "a.txt" || got[0].Size != int64(len(testContent)) {
+		t.Errorf("objects = %+v, want one a.txt of size %d", got, len(testContent))
+	}
+}
+
+func TestOpen(t *testing.T) {
+	s := newTestSwift(t)
+	ctx := context.Background()
+
+	rc, err := s.Open(ctx, "images", "a.txt", 0)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	got, err := io.ReadAll(rc)
+	rc.Close()
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if string(got) != testContent {
+		t.Errorf("content = %q, want %q", got, testContent)
+	}
+
+	// A non-zero offset issues a range request.
+	rc, err = s.Open(ctx, "images", "a.txt", 6)
+	if err != nil {
+		t.Fatalf("Open offset: %v", err)
+	}
+	got, err = io.ReadAll(rc)
+	rc.Close()
+	if err != nil {
+		t.Fatalf("ReadAll offset: %v", err)
+	}
+	if string(got) != "world" {
+		t.Errorf("offset content = %q, want %q", got, "world")
 	}
 }

@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"errors"
+	"io"
 	"slices"
 	"testing"
 
@@ -33,6 +34,10 @@ func (f fakeStorage) List(_ context.Context, container string, fn func(storage.O
 		}
 	}
 	return nil
+}
+
+func (f fakeStorage) Open(context.Context, string, string, int64) (io.ReadCloser, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (f fakeStorage) URL(container, object string) string {

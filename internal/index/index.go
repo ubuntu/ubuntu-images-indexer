@@ -91,9 +91,18 @@ func (i *Index) Children(container, prefix string) (files []storage.Object, dirs
 
 	i.mu.RLock()
 	defer i.mu.RUnlock()
-	for _, o := range i.snap[container] {
+	objs := i.snap[container]
+	// The snapshot is sorted, so skip straight to the first object at or after
+	// the prefix instead of scanning the whole container.
+	start, _ := slices.BinarySearchFunc(objs, prefix, func(o storage.Object, target string) int {
+		return strings.Compare(o.Name, target)
+	})
+	for _, o := range objs[start:] {
 		rest, ok := strings.CutPrefix(o.Name, prefix)
-		if !ok || rest == "" {
+		if !ok {
+			break
+		}
+		if rest == "" {
 			continue
 		}
 		if idx := strings.IndexByte(rest, '/'); idx >= 0 {
@@ -119,4 +128,24 @@ func (i *Index) Lookup(container, name string) (storage.Object, bool) {
 		return storage.Object{}, false
 	}
 	return objs[idx], true
+}
+
+// Containers returns the names of every indexed container, sorted.
+func (i *Index) Containers() []string {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	names := make([]string, 0, len(i.snap))
+	for c := range i.snap {
+		names = append(names, c)
+	}
+	slices.Sort(names)
+	return names
+}
+
+// HasContainer reports whether container is present in the snapshot.
+func (i *Index) HasContainer(container string) bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	_, ok := i.snap[container]
+	return ok
 }

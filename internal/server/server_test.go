@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,6 +36,10 @@ func (f fakeStorage) List(_ context.Context, container string, fn func(storage.O
 
 func (f fakeStorage) URL(container, object string) string {
 	return "https://store/" + container + "/" + object
+}
+
+func (f fakeStorage) Open(context.Context, string, string, int64) (io.ReadCloser, error) {
+	return nil, errors.New("not implemented")
 }
 
 func newServer(t *testing.T) *Server {
