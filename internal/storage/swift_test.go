@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ncw/swift/v2"
+
 	"github.com/ubuntu/ubimi/internal/config"
 )
 
@@ -21,18 +23,19 @@ func TestURL(t *testing.T) {
 }
 
 func TestToObject(t *testing.T) {
-	o := swiftObject{
+	modified := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	o := toObject(swift.Object{
 		Name:         "a.txt",
 		Bytes:        42,
 		ContentType:  "text/plain",
-		LastModified: "2024-01-02T03:04:05.000000",
+		LastModified: modified,
 		Hash:         "abc",
-	}.toObject()
+	})
 	if o.Name != "a.txt" || o.Size != 42 || o.ContentType != "text/plain" || o.ETag != "abc" {
 		t.Errorf("toObject = %+v", o)
 	}
-	if o.LastModified.IsZero() {
-		t.Error("LastModified not parsed")
+	if !o.LastModified.Equal(modified) {
+		t.Errorf("LastModified = %v, want %v", o.LastModified, modified)
 	}
 }
 
@@ -72,7 +75,8 @@ func newTestSwift(t *testing.T) *Swift {
 		if !auth(w, r) {
 			return
 		}
-		json.NewEncoder(w).Encode([]map[string]any{{"name": "images"}, {"name": "other"}})
+		// Account listings are newline-delimited container names.
+		io.WriteString(w, "images\nother\n")
 	})
 	mux.HandleFunc("/swift/images", func(w http.ResponseWriter, r *http.Request) {
 		if !auth(w, r) {

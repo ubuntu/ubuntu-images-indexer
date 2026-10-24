@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/gokrazy/rsync v0.3.9
+	github.com/ncw/swift/v2 v2.0.5
 )
 
 require (
