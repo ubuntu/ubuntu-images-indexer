@@ -53,7 +53,7 @@ func run() error {
 	handler := server.New(idx, st, router.Handler(cfg.Routes, http.NotFoundHandler()))
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           handler,
+		Handler:           server.LogRequests(handler),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

@@ -1,9 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -140,6 +142,30 @@ func TestMethodNotAllowed(t *testing.T) {
 	newServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/images/", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", rec.Code)
+	}
+}
+
+func TestLogRequests(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+		io.WriteString(w, "hi")
+	})
+	rec := httptest.NewRecorder()
+	LogRequests(next).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/a.txt?x=1", nil))
+
+	if rec.Code != http.StatusTeapot {
+		t.Errorf("status = %d, want 418", rec.Code)
+	}
+	logged := buf.String()
+	for _, want := range []string{"method=GET", `uri="/images/a.txt?x=1"`, "status=418", "bytes=2"} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("log missing %q: %s", want, logged)
+		}
 	}
 }
 
