@@ -155,14 +155,23 @@ func TestLogRequests(t *testing.T) {
 		w.WriteHeader(http.StatusTeapot)
 		io.WriteString(w, "hi")
 	})
+	req := httptest.NewRequest(http.MethodGet, "/images/a.txt?x=1", nil)
+	req.Header.Set("X-Forwarded-For", "203.0.113.7, 10.0.0.1")
 	rec := httptest.NewRecorder()
-	LogRequests(next).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/a.txt?x=1", nil))
+	LogRequests(next).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusTeapot {
 		t.Errorf("status = %d, want 418", rec.Code)
 	}
 	logged := buf.String()
-	for _, want := range []string{"method=GET", `uri="/images/a.txt?x=1"`, "status=418", "bytes=2"} {
+	for _, want := range []string{
+		"method=GET",
+		`uri="/images/a.txt?x=1"`,
+		"host=example.com",
+		`forwarded_for="203.0.113.7, 10.0.0.1"`,
+		"status=418",
+		"bytes=2",
+	} {
 		if !strings.Contains(logged, want) {
 			t.Errorf("log missing %q: %s", want, logged)
 		}
