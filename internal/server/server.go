@@ -15,9 +15,15 @@ import (
 )
 
 //go:embed index.html.tmpl
-var tmplFS embed.FS
+var tmplindexFS embed.FS
 
-var tmpl = template.Must(template.ParseFS(tmplFS, "index.html.tmpl"))
+//go:embed listing.html.tmpl
+var tmpllistingFS embed.FS
+
+var (
+	tmpl_index   = template.Must(template.ParseFS(tmplindexFS, "index.html.tmpl"))
+	tmpl_listing = template.Must(template.ParseFS(tmpllistingFS, "listing.html.tmpl"))
+)
 
 // Server serves the index for a single Storage, falling back to next when the
 // index has no match (for example, the legacy redirect farm).
@@ -40,6 +46,10 @@ type entry struct {
 	Modified string
 }
 
+type indexData struct {
+	Containers []string
+}
+
 type pageData struct {
 	Container string
 	Prefix    string
@@ -56,8 +66,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	clean := strings.Trim(r.URL.Path, "/")
 	container, prefix, _ := strings.Cut(clean, "/")
+
+	// Index page
 	if container == "" {
-		s.next.ServeHTTP(w, r)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		data := indexData{Containers: s.idx.Containers()}
+		if err := tmpl_index.Execute(w, data); err != nil {
+			http.Error(w, "render error", http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -97,7 +113,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.Execute(w, data); err != nil {
+	if err := tmpl_listing.Execute(w, data); err != nil {
 		http.Error(w, "render error", http.StatusInternalServerError)
 	}
 }
