@@ -29,6 +29,9 @@ type RsyncConfig struct {
 
 // StorageConfig describes how to reach the Swift/RadosGW object store.
 type StorageConfig struct {
+	// AuthVersion selects the identity (Keystone) API version: 1, 2 or 3.
+	// Zero (the default) lets the client infer it from AuthURL.
+	AuthVersion   int    `toml:"auth_version"`
 	AuthURL       string `toml:"auth_url"`
 	User          string `toml:"user"`
 	Password      string `toml:"password"`
@@ -39,6 +42,25 @@ type StorageConfig struct {
 	// PublicURL is the externally reachable base used to build listing links
 	// and redirects. It is required and never taken from the Keystone catalog.
 	PublicURL string `toml:"public_url"`
+}
+
+// effectiveAuthVersion returns the identity API version in use: an explicit
+// AuthVersion wins, otherwise it is inferred from AuthURL the same way the
+// swift client does. Zero means it could not be determined.
+func (s StorageConfig) effectiveAuthVersion() int {
+	if s.AuthVersion != 0 {
+		return s.AuthVersion
+	}
+	switch {
+	case strings.Contains(s.AuthURL, "v3"):
+		return 3
+	case strings.Contains(s.AuthURL, "v2"):
+		return 2
+	case strings.Contains(s.AuthURL, "v1"):
+		return 1
+	default:
+		return 0
+	}
 }
 
 // IndexConfig controls the background crawl of the object store.
@@ -117,10 +139,14 @@ func (c *Config) validate() error {
 		return fmt.Errorf("storage.user is required")
 	case s.Password == "":
 		return fmt.Errorf("storage.password is required")
-	case s.Project == "":
-		return fmt.Errorf("storage.project is required")
+	case s.AuthVersion < 0 || s.AuthVersion > 3:
+		return fmt.Errorf("storage.auth_version %d is invalid, want 1, 2 or 3 (or unset to infer it from auth_url)", s.AuthVersion)
 	case s.PublicURL == "":
 		return fmt.Errorf("storage.public_url is required")
+	}
+	// v2 and v3 authenticate against a project (tenant); v1 does not.
+	if v := s.effectiveAuthVersion(); (v == 2 || v == 3) && s.Project == "" {
+		return fmt.Errorf("storage.project is required for auth version %d", v)
 	}
 	if u, err := url.Parse(s.PublicURL); err != nil || !u.IsAbs() {
 		return fmt.Errorf("storage.public_url %q must be an absolute URL", s.PublicURL)

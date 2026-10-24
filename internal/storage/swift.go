@@ -13,8 +13,8 @@ import (
 )
 
 // Swift is a Storage backed by a Swift-compatible object store (RadosGW).
-// Authentication (Keystone v3), token caching, catalog discovery and retrying
-// on an expired token are all handled by the ncw/swift client.
+// Authentication (Keystone v1, v2 or v3), token caching, catalog discovery and
+// retrying on an expired token are all handled by the ncw/swift client.
 type Swift struct {
 	conn      *swift.Connection
 	publicURL string
@@ -31,7 +31,7 @@ func New(cfg config.StorageConfig) *Swift {
 			Tenant:       cfg.Project,
 			TenantDomain: cfg.ProjectDomain,
 			Region:       cfg.Region,
-			AuthVersion:  3,
+			AuthVersion:  cfg.AuthVersion,
 		},
 		publicURL: strings.TrimRight(cfg.PublicURL, "/"),
 	}

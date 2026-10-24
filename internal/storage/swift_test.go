@@ -41,18 +41,21 @@ func TestToObject(t *testing.T) {
 
 const testContent = "hello world"
 
-// newTestSwift starts a fake Keystone and Swift endpoint and returns a Swift
-// storage pointed at them. The fake serves one container "images" containing
-// "a.txt".
-func newTestSwift(t *testing.T) *Swift {
+// newTestServer starts a fake identity (Keystone v1, v2 and v3) and Swift
+// endpoint and returns its base URL. The Swift side serves one container
+// "images" containing "a.txt", guarded by the token all three auth flows issue.
+func newTestServer(t *testing.T) string {
 	t.Helper()
+	const token = "tok"
 	var base string
 	mux := http.NewServeMux()
+
+	// v3: POST {auth}/auth/tokens, token in the X-Subject-Token header.
 	mux.HandleFunc("/v3/auth/tokens", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("auth method = %s, want POST", r.Method)
 		}
-		w.Header().Set("X-Subject-Token", "tok")
+		w.Header().Set("X-Subject-Token", token)
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]any{"token": map[string]any{
 			"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
@@ -64,8 +67,32 @@ func newTestSwift(t *testing.T) *Swift {
 			}},
 		}})
 	})
+	// v2: POST {auth}/tokens returning a service catalog.
+	mux.HandleFunc("/v2.0/tokens", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("auth method = %s, want POST", r.Method)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"access": map[string]any{
+			"token": map[string]any{
+				"id":      token,
+				"expires": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+			},
+			"serviceCatalog": []any{map[string]any{
+				"type": "object-store",
+				"endpoints": []any{map[string]any{
+					"publicURL": base + "/swift", "region": "RegionOne",
+				}},
+			}},
+		}})
+	})
+	// v1: GET {auth}, storage URL and token in the response headers.
+	mux.HandleFunc("/v1.0", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Storage-Url", base+"/swift")
+		w.Header().Set("X-Auth-Token", token)
+	})
+
 	auth := func(w http.ResponseWriter, r *http.Request) bool {
-		if r.Header.Get("X-Auth-Token") != "tok" {
+		if r.Header.Get("X-Auth-Token") != token {
 			w.WriteHeader(http.StatusUnauthorized)
 			return false
 		}
@@ -92,11 +119,56 @@ func newTestSwift(t *testing.T) *Swift {
 		}
 		http.ServeContent(w, r, "a.txt", time.Time{}, strings.NewReader(testContent))
 	})
+
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	base = srv.URL
+	return base
+}
 
-	return New(config.StorageConfig{AuthURL: base + "/v3", User: "u", Password: "p", Project: "pr", PublicURL: "https://pub"})
+// newTestSwift returns a v3-authenticated Swift storage pointed at a fresh fake
+// identity and Swift endpoint.
+func newTestSwift(t *testing.T) *Swift {
+	return New(config.StorageConfig{
+		AuthURL:   newTestServer(t) + "/v3",
+		User:      "u",
+		Password:  "p",
+		Project:   "pr",
+		PublicURL: "https://pub",
+	})
+}
+
+// TestAuthVersions checks that auth_version is passed through to the client and
+// that the v1, v2 and v3 flows all authenticate and list containers.
+func TestAuthVersions(t *testing.T) {
+	cases := map[string]struct {
+		version int
+		path    string
+	}{
+		"v1 explicit":         {1, "/v1.0"},
+		"v2 explicit":         {2, "/v2.0"},
+		"v3 explicit":         {3, "/v3"},
+		"autodetect from url": {0, "/v2.0"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := New(config.StorageConfig{
+				AuthVersion: tc.version,
+				AuthURL:     newTestServer(t) + tc.path,
+				User:        "u",
+				Password:    "p",
+				Project:     "pr",
+				PublicURL:   "https://pub",
+			})
+			containers, err := s.Containers(context.Background())
+			if err != nil {
+				t.Fatalf("Containers: %v", err)
+			}
+			if len(containers) != 2 || containers[0] != "images" || containers[1] != "other" {
+				t.Errorf("containers = %v, want [images other]", containers)
+			}
+		})
+	}
 }
 
 // TestAuthDiscoveryAndListing exercises token issuance, catalog discovery,

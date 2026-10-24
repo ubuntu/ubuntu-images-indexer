@@ -99,6 +99,62 @@ target = "https://images.example.com/"
 	}
 }
 
+func TestLoadAuthVersions(t *testing.T) {
+	cases := map[string]struct {
+		body  string
+		valid bool
+	}{
+		"v1 needs no project": {`
+[storage]
+auth_url = "https://identity.example.com/v1.0"
+user = "u"
+password = "p"
+public_url = "https://images.example.com"
+`, true},
+		"v2 needs project": {`
+[storage]
+auth_url = "https://identity.example.com/v2.0"
+user = "u"
+password = "p"
+public_url = "https://images.example.com"
+`, false},
+		"explicit v1 needs no project": {`
+[storage]
+auth_version = 1
+auth_url = "https://identity.example.com/"
+user = "u"
+password = "p"
+public_url = "https://images.example.com"
+`, true},
+		"explicit v3 needs project": {`
+[storage]
+auth_version = 3
+auth_url = "https://identity.example.com/"
+user = "u"
+password = "p"
+public_url = "https://images.example.com"
+`, false},
+		"invalid auth_version": {`
+[storage]
+auth_version = 4
+auth_url = "https://identity.example.com/v3"
+user = "u"
+password = "p"
+project = "pr"
+public_url = "https://images.example.com"
+`, false},
+	}
+	for name, tc := range cases {
+		_, err := Load(write(t, tc.body))
+		if tc.valid && err != nil {
+			t.Errorf("%s: Load: %v", name, err)
+		}
+		if !tc.valid && err == nil {
+			t.Errorf("%s: Load succeeded, want error", name)
+		}
+	}
+}
+
 func TestLoadCompilesRegexRoute(t *testing.T) {
 	cfg, err := Load(write(t, minimal+`
 [[route]]

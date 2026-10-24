@@ -7,7 +7,13 @@
 listen = ":8080"
 
 [storage]
-# Keystone v3 endpoint (no trailing /v3 needed beyond this).
+# Identity (Keystone) API version: 1, 2 or 3. Leave unset to infer it from
+# auth_url. Versions 2 and 3 authenticate against a project and require
+# `project`; version 1 authenticates with just user/password.
+# auth_version = 3
+
+# Identity endpoint; the version is usually part of the path, e.g. .../v3,
+# .../v2.0 or .../v1.0.
 auth_url       = "https://keystone.example.com/v3"
 user           = "ubimi"
 password       = "secret"
