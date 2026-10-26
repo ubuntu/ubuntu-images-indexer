@@ -97,3 +97,41 @@ expression, allowing legacy URLs to be migrated to the current layout:
 ```sh
 go test ./...
 ```
+
+## Packaging
+
+The Go application is shipped as an OCI image ("rock") and deployed by a Juju
+charm. Both are built with their respective Canonical craft tools:
+
+```sh
+rockcraft pack     # builds ubuntu-images-indexer_<version>_amd64.rock
+charmcraft pack    # builds ubuntu-images-indexer_amd64.charm
+```
+
+`rockcraft pack` builds with cgo enabled, so a C toolchain is required; it is
+installed inside the rock's build container.
+
+### Deploying with Juju
+
+```sh
+juju deploy ./ubuntu-images-indexer_amd64.charm --resource ubimi-image=<image-ref>
+juju config ubuntu-images-indexer \
+  auth-url=https://keystone.example.com/v3 \
+  user=ubimi \
+  project=images \
+  public-url=https://images.example.com
+```
+
+The object store password is supplied out-of-band as a Juju user secret holding
+the password under the `password` key:
+
+```sh
+juju add-secret swift-password password=<secret>
+juju grant-secret swift-password ubuntu-images-indexer
+juju config ubuntu-images-indexer password=secret://<secret-id>
+```
+
+The charm renders the equivalent `config.toml` into the workload container at
+`/etc/ubimi/config.toml` and starts ubimi under Pebble. The `ingress` relation
+can expose the listings externally. The legacy redirect farm (the `[[route]]`
+rules) is not yet exposed through charm configuration.

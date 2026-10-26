@@ -1,0 +1,126 @@
+# Copyright 2026 Canonical.
+# See LICENSE file for licensing details.
+name: ubuntu-images-indexer
+description: |
+  **Ubuntu Images Indexer** is a [charm](https://juju.is/charms-architecture)
+  for deploying [ubimi](https://github.com/ubuntu/ubimi), which keeps an
+  in-memory index of a Swift-compatible object store (RadosGW) and serves
+  autoindex-style listings plus a host-and-URI redirect farm for legacy URL
+  migration.
+summary: |
+  A charm for deploying an index of a Swift-compatible object store.
+
+links:
+  website:
+    - https://images.ubuntu.com
+  issues:
+    - https://github.com/ubuntu/ubimi/issues
+  source:
+    - https://github.com/ubuntu/ubimi
+
+type: charm
+charm-user: non-root
+base: ubuntu@24.04
+platforms:
+  amd64:
+
+assumes:
+  - juju >= 3.6
+
+parts:
+  ubimi-charm:
+    plugin: uv
+    source: .
+    build-packages:
+      - git
+    build-snaps:
+      - astral-uv
+    override-build: |
+      craftctl default
+      git describe --always > $CRAFT_PART_INSTALL/version
+
+  files:
+    plugin: dump
+    source: .
+    stage:
+      - README.md
+
+containers:
+  ubimi:
+    resource: ubimi-image
+    uid: 584792
+    gid: 584792
+
+resources:
+  ubimi-image:
+    type: oci-image
+    description: OCI image for the ubimi service
+    upstream-source: ghcr.io/canonical/ubuntu-images-indexer:0.1.0
+
+charm-libs:
+  - lib: traefik_k8s.ingress
+    version: "2"
+
+config:
+  options:
+    auth-url:
+      type: string
+      description: |
+        Identity (Keystone) endpoint used to authenticate against the object
+        store, e.g. https://keystone.example.com/v3
+    auth-version:
+      type: int
+      default: 0
+      description: |
+        Keystone API version: 1, 2 or 3. Leave at 0 to infer it from auth-url.
+    user:
+      type: string
+      description: Keystone user name.
+    user-domain:
+      type: string
+      description: Keystone domain of the user (auth version 3).
+    project:
+      type: string
+      description: |
+        Keystone project (tenant) to scope to. Required for auth versions 2
+        and 3; unused for version 1.
+    project-domain:
+      type: string
+      description: Keystone domain of the project (auth version 3).
+    region:
+      type: string
+      description: Region to select from the service catalog, if ambiguous.
+    public-url:
+      type: string
+      description: |
+        Externally reachable base URL of the object store, used to build
+        listing links and redirects. This is never taken from the Keystone
+        catalog, e.g. https://images.example.com
+    listen:
+      type: string
+      default: ":8080"
+      description: HTTP bind address.
+    refresh-interval:
+      type: string
+      default: "5m"
+      description: Interval between full crawls of the object store.
+    rsync-listen:
+      type: string
+      description: |
+        Optional rsync daemon bind address, e.g. ":873". Leave empty to
+        disable the rsync listener.
+    rsync-module:
+      type: string
+      default: ubimi
+      description: rsync module name exposed by the daemon.
+    password:
+      type: secret
+      description: |
+        Secret URI of a Juju user secret holding the object store password
+        under the `password` key.
+
+requires:
+  ingress:
+    interface: ingress
+    limit: 1
+    optional: true

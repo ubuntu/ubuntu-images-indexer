@@ -1,2 +1,14 @@
 /ubimi
 /config.toml
+
+# Charmcraft / rockcraft build artefacts
+*.charm
+*.rock
+
+# Python / uv
+.venv/
+__pycache__/
+*.egg-info/
+.coverage
+.pytest_cache/
+.ruff_cache/
