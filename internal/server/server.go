@@ -94,6 +94,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	data := pageData{Container: container, Prefix: prefix}
 	if prefix != "" {
 		data.Parent = "/" + container + "/" + parentOf(prefix)
+	} else {
+		data.Parent = "/"
 	}
 	base := "/" + container + "/"
 	if prefix != "" {
