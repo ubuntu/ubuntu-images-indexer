@@ -29,12 +29,17 @@ public_url = "https://images.example.com"
 [index]
 refresh_interval = "5m"
 
-# Optional rsync daemon listener. It exposes the whole index as a single
-# read-only module whose top-level directories are the containers. Unlike the
-# HTTP listener, it streams object bytes from the object store.
+# Optional rsync daemon listener. Modules named after a known layout expose the
+# canonical images tree through that legacy layout:
+#   cdimage  -> cdimage.ubuntu.com tree
+#   releases -> releases.ubuntu.com tree
+#   images   -> canonical images tree
+# Other module names expose all containers directly. Unlike the HTTP listener,
+# rsync streams object bytes from the object store on demand.
 [rsync]
 # listen = ":873"   # uncomment to enable
-module = "ubimi"
+modules = ["cdimage", "releases", "images"]
+# module = "ubimi"  # deprecated: adds a single direct-container module
 
 # Optional redirect farm for legacy URLs. Rules are evaluated in order and
 # matched on host (exact, *.suffix, or any when empty). Each rule uses either a

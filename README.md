@@ -51,22 +51,34 @@ Building requires a C toolchain (cgo), because the rsync support pulls in the
 
 ## rsync listener
 
-ubimi can optionally also speak the rsync daemon protocol, exposing the index
-as a single read-only module whose top-level directories are the containers
-(backed by [`gokrazy/rsync`](https://github.com/gokrazy/rsync)):
+ubimi can optionally also speak the rsync daemon protocol
+(backed by [`gokrazy/rsync`](https://github.com/gokrazy/rsync)). The object store
+holds the canonical `images` tree, laid out as
+`{series}/{product}/{path}`. The rsync listener exposes that tree through one
+module per legacy layout:
+
+- `cdimage` presents the old `cdimage.ubuntu.com` tree, translating paths such
+  as `ubuntu/releases/noble/release/...` to `noble/ubuntu/...`;
+- `releases` presents the old `releases.ubuntu.com` tree, translating paths
+  such as `24.04/ubuntu-...iso` to `24.04/ubuntu/...iso`;
+- `images` exposes the canonical tree unchanged.
 
 ```sh
 # in config.toml
 [rsync]
 listen = ":873"
-module = "ubimi"
+modules = ["cdimage", "releases", "images"]
 
-rsync rsync://localhost:873/ubimi/images/...
+rsync rsync://localhost:873/cdimage/ubuntu/releases/noble/release/...
+rsync rsync://localhost:873/releases/24.04/
+rsync rsync://localhost:873/images/24.04/ubuntu/
 ```
 
-Unlike the HTTP listener — which redirects clients to the object store — the
-rsync daemon has no redirect mechanism, so file transfers are streamed from the
-object store on demand. The `[rsync]` section is inert unless `listen` is set.
+Module names other than these expose all containers directly, preserving the
+old single-module behaviour. Unlike the HTTP listener — which redirects clients
+to the object store — the rsync daemon has no redirect mechanism, so file
+transfers are streamed from the object store on demand. The `[rsync]` section is
+inert unless `listen` is set.
 
 ## Configuration
 

@@ -35,7 +35,7 @@ func (f *FS) Open(name string) (fs.File, error) {
 		return nil, notExist(name)
 	}
 	if name == "." {
-		return &dirFile{fs: f, name: "."}, nil
+		return &dirFile{src: f, name: "."}, nil
 	}
 
 	container, prefix, _ := strings.Cut(name, "/")
@@ -43,11 +43,12 @@ func (f *FS) Open(name string) (fs.File, error) {
 		return nil, notExist(name)
 	}
 	if prefix == "" {
-		return &dirFile{fs: f, name: name}, nil
+		return &dirFile{src: f, name: name}, nil
 	}
 	if obj, ok := f.idx.Lookup(container, prefix); ok {
 		return &objectFile{
-			fs:        f,
+			ctx:       f.ctx,
+			st:        f.st,
 			name:      name,
 			container: container,
 			object:    prefix,
@@ -58,7 +59,7 @@ func (f *FS) Open(name string) (fs.File, error) {
 	if len(files) == 0 && len(dirs) == 0 {
 		return nil, notExist(name)
 	}
-	return &dirFile{fs: f, name: name}, nil
+	return &dirFile{src: f, name: name}, nil
 }
 
 // entries returns the directory entries for name.
@@ -82,9 +83,14 @@ func (f *FS) entries(name string) []fs.DirEntry {
 	return out
 }
 
+// entryLister provides directory entries for a virtual path.
+type entryLister interface {
+	entries(name string) []fs.DirEntry
+}
+
 // dirFile is a directory: an fs.File and fs.ReadDirFile.
 type dirFile struct {
-	fs      *FS
+	src     entryLister
 	name    string
 	entries []fs.DirEntry
 	offset  int
@@ -98,7 +104,7 @@ func (d *dirFile) Read([]byte) (int, error) {
 
 func (d *dirFile) ReadDir(n int) ([]fs.DirEntry, error) {
 	if d.entries == nil {
-		d.entries = d.fs.entries(d.name)
+		d.entries = d.src.entries(d.name)
 	}
 	if n <= 0 {
 		entries := d.entries[d.offset:]
@@ -117,7 +123,8 @@ func (d *dirFile) ReadDir(n int) ([]fs.DirEntry, error) {
 // objectFile is a regular file whose contents are streamed from storage. It
 // implements io.Seeker, which rsync requires, by re-opening a range request.
 type objectFile struct {
-	fs        *FS
+	ctx       context.Context
+	st        storage.Storage
 	name      string
 	container string
 	object    string
@@ -130,7 +137,7 @@ func (o *objectFile) Stat() (fs.FileInfo, error) { return o.info, nil }
 
 func (o *objectFile) Read(p []byte) (int, error) {
 	if o.rc == nil {
-		rc, err := o.fs.st.Open(o.fs.ctx, o.container, o.object, o.offset)
+		rc, err := o.st.Open(o.ctx, o.container, o.object, o.offset)
 		if err != nil {
 			return 0, &fs.PathError{Op: "read", Path: o.name, Err: err}
 		}

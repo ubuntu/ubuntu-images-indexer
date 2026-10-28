@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,11 +21,26 @@ type Config struct {
 	Routes  []Route       `toml:"route"`
 }
 
-// RsyncConfig enables an additional rsync daemon listener exposing the indexed
-// object store as a single module.
+// RsyncConfig enables an additional rsync daemon listener. Modules named after
+// a known layout (cdimage, releases, images) expose the canonical images tree
+// through that layout. Other module names expose the containers directly.
 type RsyncConfig struct {
-	Listen string `toml:"listen"` // empty disables the listener
-	Module string `toml:"module"` // module name, defaults to "ubimi"
+	Listen  string   `toml:"listen"`  // empty disables the listener
+	Modules []string `toml:"modules"` // defaults to cdimage, releases and images
+	Module  string   `toml:"module"`  // deprecated single module, added to Modules
+}
+
+// ModuleNames returns the configured modules in order, or the three built-in
+// layouts when none are configured.
+func (c RsyncConfig) ModuleNames() []string {
+	names := slices.Clone(c.Modules)
+	if len(names) == 0 {
+		names = []string{"cdimage", "releases", "images"}
+	}
+	if c.Module != "" && !slices.Contains(names, c.Module) {
+		names = append(names, c.Module)
+	}
+	return names
 }
 
 // StorageConfig describes how to reach the Swift/RadosGW object store.
@@ -120,9 +136,6 @@ func (c *Config) applyDefaults() {
 		c.Index.RefreshInterval = Duration(5 * time.Minute)
 	}
 	c.Storage.PublicURL = strings.TrimRight(c.Storage.PublicURL, "/")
-	if c.Rsync.Listen != "" && c.Rsync.Module == "" {
-		c.Rsync.Module = "ubimi"
-	}
 	for i := range c.Routes {
 		if c.Routes[i].Status == 0 {
 			c.Routes[i].Status = 302

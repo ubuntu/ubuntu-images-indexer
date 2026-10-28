@@ -18,8 +18,9 @@ import (
 // Index holds a snapshot of every crawled container, keyed by container name
 // and sorted by object name. It is safe for concurrent use.
 type Index struct {
-	mu   sync.RWMutex
-	snap map[string][]storage.Object
+	mu      sync.RWMutex
+	snap    map[string][]storage.Object
+	version uint64
 }
 
 // New returns an empty index.
@@ -60,6 +61,7 @@ func (i *Index) Refresh(ctx context.Context, st storage.Storage) error {
 		}
 	}
 	i.snap = next
+	i.version++
 	i.mu.Unlock()
 	return errors.Join(errs...)
 }
@@ -140,6 +142,20 @@ func (i *Index) Containers() []string {
 	}
 	slices.Sort(names)
 	return names
+}
+
+// Objects returns a copy of the indexed objects in container.
+func (i *Index) Objects(container string) []storage.Object {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return slices.Clone(i.snap[container])
+}
+
+// Version returns a counter that increases whenever the snapshot is replaced.
+func (i *Index) Version() uint64 {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.version
 }
 
 // HasContainer reports whether container is present in the snapshot.

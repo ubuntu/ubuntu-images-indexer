@@ -1,11 +1,12 @@
 name: ubuntu-images-indexer
 version: 0.1.0
-base: ubuntu@24.04
-build-base: ubuntu@24.04
+base: ubuntu@26.04
+build-base: ubuntu@26.04
 run-user: _daemon_
 
 platforms:
   amd64:
+  arm64:
 
 summary: An image for indexing and serving a Swift-compatible object store.
 description: |
@@ -26,12 +27,13 @@ parts:
   ubimi-app:
     plugin: go
     source: .
-    build-snaps:
-      - go/1.26/stable
+    # build-snaps:
+    #   - go/1.26/stable
     # ubimi requires cgo: the rsync daemon pulls in a dependency chain that
     # needs a C toolchain, so CGO_ENABLED cannot be disabled here.
     build-packages:
       - gcc
+      - golang
       - libc6-dev
     build-environment:
       - CGO_ENABLED: "1"

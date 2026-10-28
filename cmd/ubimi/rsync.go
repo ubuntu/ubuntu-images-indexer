@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"strings"
@@ -23,10 +24,18 @@ func serveRsync(ctx context.Context, cfg config.RsyncConfig, idx *index.Index, s
 	if cfg.Listen == "" {
 		return nil
 	}
-	server, err := rsyncd.NewServer([]rsyncd.Module{{
-		Name: cfg.Module,
-		FS:   vfs.New(ctx, idx, st),
-	}}, rsyncd.DontRestrict(), rsyncd.WithLogger(rsyncLogger{}))
+	names := cfg.ModuleNames()
+	modules := make([]rsyncd.Module, 0, len(names))
+	for _, name := range names {
+		var filesystem fs.FS
+		if layout, ok := vfs.ParseLayout(name); ok {
+			filesystem = vfs.NewLayout(ctx, idx, st, layout)
+		} else {
+			filesystem = vfs.New(ctx, idx, st)
+		}
+		modules = append(modules, rsyncd.Module{Name: name, FS: filesystem})
+	}
+	server, err := rsyncd.NewServer(modules, rsyncd.DontRestrict(), rsyncd.WithLogger(rsyncLogger{}))
 	if err != nil {
 		return fmt.Errorf("rsync server: %w", err)
 	}
@@ -35,7 +44,7 @@ func serveRsync(ctx context.Context, cfg config.RsyncConfig, idx *index.Index, s
 		return fmt.Errorf("rsync listen: %w", err)
 	}
 	go func() {
-		slog.Info("rsync listening", "addr", ln.Addr().String(), "module", cfg.Module)
+		slog.Info("rsync listening", "addr", ln.Addr().String(), "modules", names)
 		if err := serveConns(ctx, ln, server); err != nil && ctx.Err() == nil {
 			errCh <- fmt.Errorf("rsync server: %w", err)
 		}

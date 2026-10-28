@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -173,5 +174,23 @@ target = "https://images.ubuntu.com/images/{series}/{product}"
 	}
 	if cfg.Routes[0].Status != 302 {
 		t.Errorf("status = %d, want default 302", cfg.Routes[0].Status)
+	}
+}
+
+func TestRsyncModuleNames(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  RsyncConfig
+		want []string
+	}{
+		{"default layouts", RsyncConfig{}, []string{"cdimage", "releases", "images"}},
+		{"explicit modules", RsyncConfig{Modules: []string{"images", "legacy"}}, []string{"images", "legacy"}},
+		{"legacy module added", RsyncConfig{Module: "ubimi"}, []string{"cdimage", "releases", "images", "ubimi"}},
+		{"legacy module not duplicated", RsyncConfig{Modules: []string{"releases"}, Module: "releases"}, []string{"releases"}},
+	}
+	for _, tc := range cases {
+		if got := tc.cfg.ModuleNames(); strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Errorf("%s: ModuleNames() = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
