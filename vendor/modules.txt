@@ -1,0 +1,42 @@
+# github.com/BurntSushi/toml v1.6.0
+## explicit; go 1.18
+github.com/BurntSushi/toml
+github.com/BurntSushi/toml/internal
+# github.com/gokrazy/rsync v0.3.9
+## explicit; go 1.26.0
+github.com/gokrazy/rsync
+github.com/gokrazy/rsync/internal/log
+github.com/gokrazy/rsync/internal/progress
+github.com/gokrazy/rsync/internal/receiver
+github.com/gokrazy/rsync/internal/restrict
+github.com/gokrazy/rsync/internal/rsyncchecksum
+github.com/gokrazy/rsync/internal/rsynccommon
+github.com/gokrazy/rsync/internal/rsyncopts
+github.com/gokrazy/rsync/internal/rsyncos
+github.com/gokrazy/rsync/internal/rsyncstats
+github.com/gokrazy/rsync/internal/rsyncwire
+github.com/gokrazy/rsync/internal/sender
+github.com/gokrazy/rsync/internal/version
+github.com/gokrazy/rsync/rsyncd
+# github.com/google/renameio/v2 v2.0.2
+## explicit; go 1.25
+github.com/google/renameio/v2
+# github.com/landlock-lsm/go-landlock v0.0.0-20250303204525-1544bccde3a3
+## explicit; go 1.18
+github.com/landlock-lsm/go-landlock/landlock
+github.com/landlock-lsm/go-landlock/landlock/syscall
+# github.com/mmcloughlin/md4 v0.1.2
+## explicit; go 1.17
+github.com/mmcloughlin/md4
+# github.com/ncw/swift/v2 v2.0.5
+## explicit; go 1.16
+github.com/ncw/swift/v2
+# golang.org/x/sync v0.24.0
+## explicit; go 1.26.0
+golang.org/x/sync/errgroup
+# golang.org/x/sys v0.49.0
+## explicit; go 1.26.0
+golang.org/x/sys/unix
+# kernel.org/pub/linux/libs/security/libcap/psx v1.2.70
+## explicit; go 1.11
+kernel.org/pub/linux/libs/security/libcap/psx

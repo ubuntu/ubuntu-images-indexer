@@ -12,8 +12,8 @@ import (
 )
 
 // Layout identifies a legacy tree layout exposed over rsync. The object store
-// itself keeps the new canonical layout, stored in the images container as
-// {series}/{product}/{path}.
+// itself keeps the new canonical layout, spread across containers as
+// {series}/{product}/{path} object names.
 type Layout string
 
 const (
@@ -23,10 +23,15 @@ const (
 	LayoutCDImage Layout = "cdimage"
 	// LayoutReleases exposes the old releases.ubuntu.com tree.
 	LayoutReleases Layout = "releases"
-
-	// CanonicalContainer is the storage container holding the new tree.
-	CanonicalContainer = "images"
 )
+
+// legacyContainers hold the old tree layouts (cdimage.ubuntu.com and
+// releases.ubuntu.com). Their objects are not part of the canonical images
+// tree and must not be translated into it.
+var legacyContainers = map[string]bool{
+	string(LayoutCDImage):  true,
+	string(LayoutReleases): true,
+}
 
 // ParseLayout returns the layout with the given module name.
 func ParseLayout(name string) (Layout, bool) {
@@ -132,22 +137,31 @@ func (l Layout) virtual(name string) []string {
 	return nil
 }
 
-// View is a read-only fs.FS exposing the canonical images container through a
-// legacy layout.
+// canonicalObject pairs a canonical object with the storage container it
+// lives in, so its bytes can be streamed on demand.
+type canonicalObject struct {
+	container string
+	object    storage.Object
+}
+
+// View is a read-only fs.FS exposing the canonical images tree through a
+// legacy layout. The canonical tree is spread across the object store's
+// containers: each object's name is {series}/{product}/{path}.
 type View struct {
 	ctx    context.Context
 	idx    *index.Index
 	st     storage.Storage
 	layout Layout
 
-	mu      sync.RWMutex
-	version uint64
-	loaded  bool
-	objects map[string]storage.Object
-	names   []string
+	mu       sync.RWMutex
+	version  uint64
+	loaded   bool
+	objects  map[string]canonicalObject // virtual path -> object
+	byObject map[string]canonicalObject // canonical object name -> object
+	names    []string
 }
 
-// NewLayout returns a view of the canonical images container through layout l.
+// NewLayout returns a view of the canonical images tree through layout l.
 func NewLayout(ctx context.Context, idx *index.Index, st storage.Storage, l Layout) *View {
 	return &View{ctx: ctx, idx: idx, st: st, layout: l}
 }
@@ -166,7 +180,7 @@ func (v *View) Open(name string) (fs.File, error) {
 	obj, ok := v.objects[name]
 	if !ok {
 		if canonical, found := v.layout.canonical(name); found {
-			obj, ok = v.idx.Lookup(CanonicalContainer, canonical)
+			obj, ok = v.byObject[canonical]
 		}
 	}
 	files, dirs := v.childrenLocked(name)
@@ -177,9 +191,9 @@ func (v *View) Open(name string) (fs.File, error) {
 			ctx:       v.ctx,
 			st:        v.st,
 			name:      name,
-			container: CanonicalContainer,
-			object:    obj.Name,
-			info:      objectInfo(base(name), obj),
+			container: obj.container,
+			object:    obj.object.Name,
+			info:      objectInfo(base(name), obj.object),
 		}, nil
 	}
 	if len(files) == 0 && len(dirs) == 0 {
@@ -200,13 +214,21 @@ func (v *View) ensureLocked() {
 	if v.loaded && v.version == version {
 		return
 	}
-	objects := make(map[string]storage.Object)
-	for _, obj := range v.idx.Objects(CanonicalContainer) {
-		for _, name := range v.layout.virtual(obj.Name) {
-			if name == "" || !fs.ValidPath(name) {
-				continue
+	objects := make(map[string]canonicalObject)
+	byObject := make(map[string]canonicalObject)
+	for _, container := range v.idx.Containers() {
+		if legacyContainers[container] {
+			continue
+		}
+		for _, obj := range v.idx.Objects(container) {
+			cobj := canonicalObject{container: container, object: obj}
+			byObject[obj.Name] = cobj
+			for _, name := range v.layout.virtual(obj.Name) {
+				if name == "" || !fs.ValidPath(name) {
+					continue
+				}
+				objects[name] = cobj
 			}
-			objects[name] = obj
 		}
 	}
 	names := make([]string, 0, len(objects))
@@ -215,6 +237,7 @@ func (v *View) ensureLocked() {
 	}
 	slices.Sort(names)
 	v.objects = objects
+	v.byObject = byObject
 	v.names = names
 	v.version = version
 	v.loaded = true
@@ -227,6 +250,9 @@ type virtualObject struct {
 
 func (v *View) childrenLocked(name string) (files []virtualObject, dirs []string) {
 	prefix := strings.Trim(name, "/")
+	if prefix == "." {
+		prefix = ""
+	}
 	if prefix != "" {
 		prefix += "/"
 	}
@@ -245,7 +271,7 @@ func (v *View) childrenLocked(name string) (files []virtualObject, dirs []string
 			}
 			continue
 		}
-		files = append(files, virtualObject{name: n, obj: v.objects[n]})
+		files = append(files, virtualObject{name: n, obj: v.objects[n].object})
 	}
 	return files, dirs
 }

@@ -161,6 +161,79 @@ func TestViewImagesTree(t *testing.T) {
 	}
 }
 
+func TestViewRootListing(t *testing.T) {
+	cases := []struct {
+		layout Layout
+		want   []string
+	}{
+		{LayoutImages, []string{"24.04", "noble"}},
+		{LayoutReleases, []string{"24.04", "noble"}},
+		{LayoutCDImage, []string{"kubuntu", "netboot", "ubuntu", "ubuntu-base", "ubuntu-core", "ubuntu-server"}},
+	}
+	for _, tc := range cases {
+		v := newLayoutView(t, tc.layout)
+		entries, err := fs.ReadDir(v, ".")
+		if err != nil {
+			t.Fatalf("%s ReadDir root: %v", tc.layout, err)
+		}
+		got := make([]string, 0, len(entries))
+		for _, e := range entries {
+			got = append(got, e.Name())
+		}
+		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Errorf("%s root entries = %v, want %v", tc.layout, got, tc.want)
+		}
+	}
+}
+
+// TestViewAggregatesContainers checks that the canonical tree is built from
+// object names across all containers (one per series, as in the object store)
+// and that each object keeps the container it came from. Legacy layout
+// containers are ignored.
+func TestViewAggregatesContainers(t *testing.T) {
+	st := fakeStorage{
+		objects: map[string][]storage.Object{
+			"focal":    {{Name: "20.04/ubuntu/focal.iso", Size: 5}},
+			"noble":    {{Name: "24.04/ubuntu/noble.iso", Size: 5}},
+			"releases": {{Name: "HEADER.html", Size: 9}},
+		},
+		content: map[string]string{
+			"focal/20.04/ubuntu/focal.iso": "focal",
+			"noble/24.04/ubuntu/noble.iso": "noble",
+		},
+	}
+	idx := index.New()
+	if err := idx.Refresh(context.Background(), st); err != nil {
+		t.Fatal(err)
+	}
+	v := NewLayout(context.Background(), idx, st, LayoutReleases)
+
+	entries, err := fs.ReadDir(v, ".")
+	if err != nil {
+		t.Fatalf("ReadDir root: %v", err)
+	}
+	var got []string
+	for _, e := range entries {
+		got = append(got, e.Name())
+	}
+	if want := "20.04,24.04"; strings.Join(got, ",") != want {
+		t.Fatalf("root entries = %v, want %v", got, want)
+	}
+
+	// Content must be streamed from the object's own container.
+	if c := readFile(t, v, "24.04/noble.iso"); c != "noble" {
+		t.Errorf("noble content = %q", c)
+	}
+	if c := readFile(t, v, "20.04/focal.iso"); c != "focal" {
+		t.Errorf("focal content = %q", c)
+	}
+
+	// The legacy "releases" container must not leak into the canonical tree.
+	if _, err := v.Open("HEADER.html"); err == nil {
+		t.Errorf("legacy releases object unexpectedly visible")
+	}
+}
+
 func readFile(t *testing.T, fsys fs.FS, name string) string {
 	t.Helper()
 	f, err := fsys.Open(name)

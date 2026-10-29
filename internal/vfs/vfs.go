@@ -131,11 +131,15 @@ type objectFile struct {
 	info      fs.FileInfo
 	rc        io.ReadCloser
 	offset    int64
+	eof       bool
 }
 
 func (o *objectFile) Stat() (fs.FileInfo, error) { return o.info, nil }
 
 func (o *objectFile) Read(p []byte) (int, error) {
+	if o.eof {
+		return 0, io.EOF
+	}
 	if o.rc == nil {
 		rc, err := o.st.Open(o.ctx, o.container, o.object, o.offset)
 		if err != nil {
@@ -145,6 +149,16 @@ func (o *objectFile) Read(p []byte) (int, error) {
 	}
 	n, err := o.rc.Read(p)
 	o.offset += int64(n)
+	if err == io.EOF {
+		// The Swift reader may return the final bytes together with io.EOF.
+		// rsync's sender drops n when it sees io.EOF, so return the data with
+		// a nil error and report EOF on the next call instead.
+		o.eof = true
+		if n > 0 {
+			return n, nil
+		}
+		return 0, io.EOF
+	}
 	return n, err
 }
 
@@ -176,6 +190,7 @@ func (o *objectFile) Seek(offset int64, whence int) (int64, error) {
 			o.rc = nil
 		}
 		o.offset = abs
+		o.eof = false
 	}
 	return abs, nil
 }

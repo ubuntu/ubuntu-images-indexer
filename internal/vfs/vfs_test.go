@@ -168,6 +168,54 @@ func TestNotExist(t *testing.T) {
 	}
 }
 
+func TestReadDoesNotReturnDataWithEOF(t *testing.T) {
+	st := eofStorage{fakeStorage{content: map[string]string{"images/a.txt": "hello"}}}
+	f := &objectFile{
+		name:      "a.txt",
+		container: "images",
+		object:    "a.txt",
+		info:      objectInfo("a.txt", storage.Object{Name: "a.txt", Size: 5}),
+		st:        st,
+	}
+	buf := make([]byte, 16)
+	n, err := f.Read(buf)
+	if n != 5 || err != nil {
+		t.Fatalf("first Read = %d, %v; want 5, nil (rsync drops data returned with io.EOF)", n, err)
+	}
+	if string(buf[:n]) != "hello" {
+		t.Errorf("content = %q", buf[:n])
+	}
+	if n, err := f.Read(buf); n != 0 || err != io.EOF {
+		t.Errorf("second Read = %d, %v; want 0, io.EOF", n, err)
+	}
+}
+
+// eofStorage is like fakeStorage but its readers return the final bytes
+// together with io.EOF, matching the Swift client.
+type eofStorage struct{ fakeStorage }
+
+func (e eofStorage) Open(_ context.Context, container, object string, offset int64) (io.ReadCloser, error) {
+	b := []byte(e.content[container+"/"+object])
+	if offset > 0 {
+		b = b[offset:]
+	}
+	return io.NopCloser(&eofReader{b: b}), nil
+}
+
+type eofReader struct{ b []byte }
+
+func (r *eofReader) Read(p []byte) (int, error) {
+	if len(r.b) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.b)
+	r.b = r.b[n:]
+	if len(r.b) == 0 {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
 func TestWalk(t *testing.T) {
 	f := newFS(t)
 	var got []string

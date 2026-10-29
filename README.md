@@ -53,9 +53,9 @@ Building requires a C toolchain (cgo), because the rsync support pulls in the
 
 ubimi can optionally also speak the rsync daemon protocol
 (backed by [`gokrazy/rsync`](https://github.com/gokrazy/rsync)). The object store
-holds the canonical `images` tree, laid out as
-`{series}/{product}/{path}`. The rsync listener exposes that tree through one
-module per legacy layout:
+holds the canonical images tree as `{series}/{product}/{path}` object names,
+spread across containers (one per series). The rsync listener exposes that tree
+through one module per legacy layout:
 
 - `cdimage` presents the old `cdimage.ubuntu.com` tree, translating paths such
   as `ubuntu/releases/noble/release/...` to `noble/ubuntu/...`;
@@ -79,6 +79,12 @@ old single-module behaviour. Unlike the HTTP listener — which redirects client
 to the object store — the rsync daemon has no redirect mechanism, so file
 transfers are streamed from the object store on demand. The `[rsync]` section is
 inert unless `listen` is set.
+
+`gokrazy/rsync` is vendored under `vendor/` with a local patch to
+`internal/sender/flist.go`: upstream does not list a non-recursively requested
+directory's immediate entries, so `rsync --list-only` only emitted `.`. The
+patch restores the one-level listing that stock rsync daemons produce. Note that
+re-running `go mod vendor` will discard the patch.
 
 ## Configuration
 
