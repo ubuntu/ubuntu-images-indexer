@@ -4,7 +4,6 @@ package config
 import (
 	"fmt"
 	"net/url"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -12,13 +11,24 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// knownLayouts are the tree layouts the HTTP listener can expose per host. The
+// names match the rsync modules and vfs.ParseLayout.
+var knownLayouts = map[string]bool{
+	"cdimage":  true,
+	"releases": true,
+	"images":   true,
+}
+
 // Config is the top-level ubimi configuration.
 type Config struct {
 	Listen  string        `toml:"listen"`
 	Storage StorageConfig `toml:"storage"`
 	Index   IndexConfig   `toml:"index"`
 	Rsync   RsyncConfig   `toml:"rsync"`
-	Routes  []Route       `toml:"route"`
+	// Layouts maps a request hostname to the tree layout the HTTP listener
+	// exposes for it (cdimage, releases or images). Hosts not listed fall back
+	// to the images layout, whose first path segment selects the container.
+	Layouts map[string]string `toml:"layouts"`
 }
 
 // RsyncConfig enables an additional rsync daemon listener. Modules named after
@@ -84,24 +94,6 @@ type IndexConfig struct {
 	RefreshInterval Duration `toml:"refresh_interval"`
 }
 
-// Route redirects requests matching a host and either a path prefix (Path) or
-// a regular expression (Match) to a target URL. Exactly one of Path or Match
-// must be set.
-//
-// For prefix routes, Target may reference {path} (the URI remainder after the
-// prefix) and {container} (the first path segment). For regex routes, Match is
-// compiled with named capture groups that Target may reference as {name}.
-type Route struct {
-	Host   string `toml:"host"`
-	Path   string `toml:"path"`
-	Match  string `toml:"match"`
-	Target string `toml:"target"`
-	Status int    `toml:"status"`
-
-	// Regexp is the compiled form of Match, populated by Load.
-	Regexp *regexp.Regexp `toml:"-"`
-}
-
 // Duration is a time.Duration that unmarshals from a TOML string such as "5m".
 type Duration time.Duration
 
@@ -136,11 +128,6 @@ func (c *Config) applyDefaults() {
 		c.Index.RefreshInterval = Duration(5 * time.Minute)
 	}
 	c.Storage.PublicURL = strings.TrimRight(c.Storage.PublicURL, "/")
-	for i := range c.Routes {
-		if c.Routes[i].Status == 0 {
-			c.Routes[i].Status = 302
-		}
-	}
 }
 
 func (c *Config) validate() error {
@@ -164,22 +151,9 @@ func (c *Config) validate() error {
 	if u, err := url.Parse(s.PublicURL); err != nil || !u.IsAbs() {
 		return fmt.Errorf("storage.public_url %q must be an absolute URL", s.PublicURL)
 	}
-	for i := range c.Routes {
-		r := &c.Routes[i]
-		switch {
-		case r.Target == "":
-			return fmt.Errorf("route %d: target is required", i)
-		case r.Path == "" && r.Match == "":
-			return fmt.Errorf("route %d: one of path or match is required", i)
-		case r.Path != "" && r.Match != "":
-			return fmt.Errorf("route %d: path and match are mutually exclusive", i)
-		}
-		if r.Match != "" {
-			re, err := regexp.Compile(r.Match)
-			if err != nil {
-				return fmt.Errorf("route %d: invalid match: %w", i, err)
-			}
-			r.Regexp = re
+	for host, layout := range c.Layouts {
+		if !knownLayouts[layout] {
+			return fmt.Errorf("layouts: host %q maps to unknown layout %q", host, layout)
 		}
 	}
 	return nil

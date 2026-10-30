@@ -1,42 +1,59 @@
 // Package server renders autoindex-style listings and redirects object
-// requests straight to the object store.
+// requests straight to the object store. Requests are mapped to the canonical
+// images tree through one of the vfs layouts, selected by hostname.
 package server
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"html/template"
+	"io/fs"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ubuntu/ubimi/internal/index"
 	"github.com/ubuntu/ubimi/internal/storage"
+	"github.com/ubuntu/ubimi/internal/vfs"
 )
-
-//go:embed index.html.tmpl
-var tmplindexFS embed.FS
 
 //go:embed listing.html.tmpl
 var tmpllistingFS embed.FS
 
-var (
-	tmpl_index   = template.Must(template.ParseFS(tmplindexFS, "index.html.tmpl"))
-	tmpl_listing = template.Must(template.ParseFS(tmpllistingFS, "listing.html.tmpl"))
-)
+var tmpl_listing = template.Must(template.ParseFS(tmpllistingFS, "listing.html.tmpl"))
 
-// Server serves the index for a single Storage, falling back to next when the
-// index has no match (for example, the legacy redirect farm).
+// Server serves the canonical images tree through the layout selected for each
+// request hostname, redirecting object requests to the object store.
 type Server struct {
-	idx  *index.Index
-	st   storage.Storage
-	next http.Handler
+	ctx      context.Context
+	idx      *index.Index
+	st       storage.Storage
+	layouts  map[string]vfs.Layout // lower-case hostname -> layout
+	fallback vfs.Layout
+
+	mu    sync.Mutex
+	views map[vfs.Layout]*vfs.View
 }
 
-// New returns a Server reading from idx, linking through st and handing
-// unmatched requests to next.
-func New(idx *index.Index, st storage.Storage, next http.Handler) *Server {
-	return &Server{idx: idx, st: st, next: next}
+// New returns a Server serving idx and redirecting objects through st. The
+// layouts map selects a tree layout per request hostname; hosts not listed fall
+// back to the images layout, whose first path segment selects the container.
+func New(ctx context.Context, idx *index.Index, st storage.Storage, layouts map[string]vfs.Layout) *Server {
+	hosts := make(map[string]vfs.Layout, len(layouts))
+	for host, layout := range layouts {
+		hosts[strings.ToLower(host)] = layout
+	}
+	return &Server{
+		ctx:      ctx,
+		idx:      idx,
+		st:       st,
+		layouts:  hosts,
+		fallback: vfs.LayoutImages,
+		views:    make(map[vfs.Layout]*vfs.View),
+	}
 }
 
 type entry struct {
@@ -46,16 +63,11 @@ type entry struct {
 	Modified string
 }
 
-type indexData struct {
-	Containers []string
-}
-
 type pageData struct {
-	Container string
-	Prefix    string
-	Parent    string
-	Dirs      []entry
-	Files     []entry
+	Path   string
+	Parent string
+	Dirs   []entry
+	Files  []entry
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -64,60 +76,94 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	view := s.view(r.Host)
 	clean := strings.Trim(r.URL.Path, "/")
-	container, prefix, _ := strings.Cut(clean, "/")
-
-	// Index page
-	if container == "" {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		data := indexData{Containers: s.idx.Containers()}
-		if err := tmpl_index.Execute(w, data); err != nil {
-			http.Error(w, "render error", http.StatusInternalServerError)
-		}
-		return
+	name := clean
+	if name == "" {
+		name = "."
 	}
 
-	// An indexed object is served by redirecting to the object store.
-	if prefix != "" {
-		if _, ok := s.idx.Lookup(container, prefix); ok {
-			http.Redirect(w, r, s.st.URL(container, prefix), http.StatusFound)
+	f, err := view.Open(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if info, err := f.Stat(); err == nil && !info.IsDir() {
+		// An indexed object is served by redirecting to the object store.
+		container, object, ok := view.Resolve(name)
+		if !ok {
+			http.NotFound(w, r)
 			return
 		}
-	}
-
-	files, dirs := s.idx.Children(container, prefix)
-	if len(files) == 0 && len(dirs) == 0 {
-		s.next.ServeHTTP(w, r)
+		http.Redirect(w, r, s.st.URL(container, object), http.StatusFound)
 		return
 	}
 
-	data := pageData{Container: container, Prefix: prefix}
-	if prefix != "" {
-		data.Parent = "/" + container + "/" + parentOf(prefix)
-	} else {
-		data.Parent = "/"
+	if err := s.renderListing(w, view, clean); err != nil {
+		http.Error(w, "render error", http.StatusInternalServerError)
 	}
-	base := "/" + container + "/"
-	if prefix != "" {
-		base += prefix + "/"
+}
+
+// view returns the layout view for the request host, reusing one per layout.
+func (s *Server) view(host string) *vfs.View {
+	name := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		name = h
 	}
-	for _, d := range dirs {
-		data.Dirs = append(data.Dirs, entry{Name: d, URL: base + d + "/"})
+	layout, ok := s.layouts[strings.ToLower(name)]
+	if !ok {
+		layout = s.fallback
 	}
-	for _, f := range files {
-		obj := f.Name
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.views[layout]
+	if !ok {
+		v = vfs.NewLayout(s.ctx, s.idx, s.st, layout)
+		s.views[layout] = v
+	}
+	return v
+}
+
+func (s *Server) renderListing(w http.ResponseWriter, view *vfs.View, clean string) error {
+	name := clean
+	if name == "" {
+		name = "."
+	}
+	entries, err := fs.ReadDir(view, name)
+	if err != nil {
+		return err
+	}
+
+	data := pageData{Path: "/"}
+	if clean != "" {
+		data.Path = "/" + clean + "/"
+		data.Parent = "/" + parentOf(clean)
+	}
+	for _, e := range entries {
+		full := e.Name()
+		if clean != "" {
+			full = clean + "/" + e.Name()
+		}
+		if e.IsDir() {
+			data.Dirs = append(data.Dirs, entry{Name: e.Name(), URL: "/" + full + "/"})
+			continue
+		}
+		container, object, ok := view.Resolve(full)
+		if !ok {
+			continue
+		}
+		info, _ := e.Info()
 		data.Files = append(data.Files, entry{
-			Name:     f.Name[strings.LastIndex(f.Name, "/")+1:],
-			URL:      s.st.URL(container, obj),
-			Size:     humanSize(f.Size),
-			Modified: formatTime(f.LastModified),
+			Name:     e.Name(),
+			URL:      s.st.URL(container, object),
+			Size:     humanSize(info.Size()),
+			Modified: formatTime(info.ModTime()),
 		})
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl_listing.Execute(w, data); err != nil {
-		http.Error(w, "render error", http.StatusInternalServerError)
-	}
+	return tmpl_listing.Execute(w, data)
 }
 
 // parentOf returns the parent prefix with a trailing slash, or "" at the root.

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ubuntu/ubimi/internal/index"
 	"github.com/ubuntu/ubimi/internal/storage"
+	"github.com/ubuntu/ubimi/internal/vfs"
 )
 
 type fakeStorage struct {
@@ -44,24 +45,24 @@ func (f fakeStorage) Open(context.Context, string, string, int64) (io.ReadCloser
 	return nil, errors.New("not implemented")
 }
 
-func newServer(t *testing.T) *Server {
+func newServer(t *testing.T, st storage.Storage, layouts map[string]vfs.Layout) *Server {
 	t.Helper()
+	idx := index.New()
+	if err := idx.Refresh(context.Background(), st); err != nil {
+		t.Fatal(err)
+	}
+	return New(context.Background(), idx, st, layouts)
+}
+
+func TestObjectRedirect(t *testing.T) {
 	st := fakeStorage{objects: map[string][]storage.Object{
 		"images": {
 			{Name: "a.txt", Size: 10},
 			{Name: "dir/b.txt", Size: 2048},
 		},
 	}}
-	idx := index.New()
-	if err := idx.Refresh(context.Background(), st); err != nil {
-		t.Fatal(err)
-	}
-	return New(idx, st, http.NotFoundHandler())
-}
-
-func TestObjectRedirect(t *testing.T) {
 	rec := httptest.NewRecorder()
-	newServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/a.txt", nil))
+	newServer(t, st, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/a.txt", nil))
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", rec.Code)
 	}
@@ -71,8 +72,14 @@ func TestObjectRedirect(t *testing.T) {
 }
 
 func TestListing(t *testing.T) {
+	st := fakeStorage{objects: map[string][]storage.Object{
+		"images": {
+			{Name: "a.txt", Size: 10},
+			{Name: "dir/b.txt", Size: 2048},
+		},
+	}}
 	rec := httptest.NewRecorder()
-	newServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/", nil))
+	newServer(t, st, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
@@ -85,8 +92,14 @@ func TestListing(t *testing.T) {
 }
 
 func TestSubdirListing(t *testing.T) {
+	st := fakeStorage{objects: map[string][]storage.Object{
+		"images": {
+			{Name: "a.txt", Size: 10},
+			{Name: "dir/b.txt", Size: 2048},
+		},
+	}}
 	rec := httptest.NewRecorder()
-	newServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/dir/", nil))
+	newServer(t, st, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/dir/", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
@@ -100,46 +113,56 @@ func TestSubdirListing(t *testing.T) {
 }
 
 func TestNotFound(t *testing.T) {
+	st := fakeStorage{objects: map[string][]storage.Object{
+		"images": {{Name: "a.txt", Size: 10}},
+	}}
 	rec := httptest.NewRecorder()
-	newServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/nope", nil))
+	newServer(t, st, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/nope", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
 }
 
-func TestFallbackOnIndexMiss(t *testing.T) {
-	var called bool
-	fallback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusTeapot)
-	})
-	st := fakeStorage{objects: map[string][]storage.Object{"images": {{Name: "a.txt"}}}}
-	idx := index.New()
-	if err := idx.Refresh(context.Background(), st); err != nil {
-		t.Fatal(err)
-	}
-	s := New(idx, st, fallback)
+// TestLegacyHostLayout checks that a host mapped to a legacy layout is served
+// the legacy tree and that object requests redirect to the canonical object.
+func TestLegacyHostLayout(t *testing.T) {
+	st := fakeStorage{objects: map[string][]storage.Object{
+		"noble": {{Name: "24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso", Size: 10}},
+	}}
+	layouts := map[string]vfs.Layout{"cdimage.ubuntu.com": vfs.LayoutCDImage}
+	s := newServer(t, st, layouts)
 
-	// A hit is served from the index and must not reach the fallback.
-	called = false
+	// A legacy path is translated to the canonical object.
+	req := httptest.NewRequest(http.MethodGet, "/ubuntu/releases/24.04/release/ubuntu-24.04.3-desktop-amd64.iso", nil)
+	req.Host = "cdimage.ubuntu.com"
 	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/images/a.txt", nil))
-	if rec.Code != http.StatusFound || called {
-		t.Errorf("index hit: status = %d, fallback called = %v; want 302, false", rec.Code, called)
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "https://store/noble/24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso" {
+		t.Errorf("Location = %q", loc)
 	}
 
-	// A miss is handed to the fallback.
-	called = false
+	// The same host serves the legacy tree root.
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "cdimage.ubuntu.com"
 	rec = httptest.NewRecorder()
-	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/unknown/x", nil))
-	if rec.Code != http.StatusTeapot || !called {
-		t.Errorf("index miss: status = %d, fallback called = %v; want 418, true", rec.Code, called)
+	s.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("root status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `href="/ubuntu/"`) {
+		t.Errorf("legacy root listing missing ubuntu dir: %s", body)
 	}
 }
 
 func TestMethodNotAllowed(t *testing.T) {
+	st := fakeStorage{objects: map[string][]storage.Object{
+		"images": {{Name: "a.txt", Size: 10}},
+	}}
 	rec := httptest.NewRecorder()
-	newServer(t).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/images/", nil))
+	newServer(t, st, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/images/", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", rec.Code)
 	}

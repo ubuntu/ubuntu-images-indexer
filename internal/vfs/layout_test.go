@@ -90,6 +90,26 @@ func newLayoutView(t *testing.T, layout Layout) *View {
 	return NewLayout(context.Background(), idx, st, layout)
 }
 
+func TestViewResolve(t *testing.T) {
+	cases := []struct {
+		layout    Layout
+		virtual   string
+		container string
+		object    string
+	}{
+		{LayoutImages, "images/24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso", "images", "24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
+		{LayoutReleases, "24.04/ubuntu-24.04.3-desktop-amd64.iso", "images", "24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
+		{LayoutCDImage, "ubuntu/releases/24.04/release/ubuntu-24.04.3-desktop-amd64.iso", "images", "24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
+	}
+	for _, tc := range cases {
+		v := newLayoutView(t, tc.layout)
+		container, object, ok := v.Resolve(tc.virtual)
+		if !ok || container != tc.container || object != tc.object {
+			t.Errorf("%s Resolve(%q) = %q, %q, %v; want %q, %q, true", tc.layout, tc.virtual, container, object, ok, tc.container, tc.object)
+		}
+	}
+}
+
 func TestViewCDImageTree(t *testing.T) {
 	v := newLayoutView(t, LayoutCDImage)
 	entries, err := fs.ReadDir(v, "ubuntu")

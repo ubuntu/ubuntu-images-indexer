@@ -1,11 +1,13 @@
 // Command ubimi keeps an in-memory index of a Swift-compatible object store
-// and serves it as autoindex-style listings and legacy redirects.
+// and serves it as autoindex-style listings, redirecting object requests to the
+// store through the layout selected for each request hostname.
 package main
 
 import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -15,9 +17,9 @@ import (
 
 	"github.com/ubuntu/ubimi/internal/config"
 	"github.com/ubuntu/ubimi/internal/index"
-	"github.com/ubuntu/ubimi/internal/router"
 	"github.com/ubuntu/ubimi/internal/server"
 	"github.com/ubuntu/ubimi/internal/storage"
+	"github.com/ubuntu/ubimi/internal/vfs"
 )
 
 func main() {
@@ -48,9 +50,16 @@ func run() error {
 		idx.Run(ctx, st, time.Duration(cfg.Index.RefreshInterval))
 	}()
 
-	// The in-memory index is the primary path; the redirect farm only handles
-	// requests the index knows nothing about.
-	handler := server.New(idx, st, router.Handler(cfg.Routes, http.NotFoundHandler()))
+	layouts := make(map[string]vfs.Layout, len(cfg.Layouts))
+	for host, name := range cfg.Layouts {
+		layout, ok := vfs.ParseLayout(name)
+		if !ok {
+			return fmt.Errorf("layouts: host %q maps to unknown layout %q", host, name)
+		}
+		layouts[host] = layout
+	}
+
+	handler := server.New(ctx, idx, st, layouts)
 	srv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           server.LogRequests(handler),

@@ -29,10 +29,11 @@ straight to RadosGW, while rsync clients (on a separate listener) are served
 the object bytes through ubimi.
 
 The architecture of ubimi keeps the swift calls abstracted behind a generic
-"storage" interface, allowing easy swapping of the Object Storage backend.
-Similarly, a separate routing interface allows easy addition of any HTTP routes
-based on both the hostname and the URI to provide an easy to maintain redirect
-farm, facilitating the transition from previous legacy storage solution.
+"storage" interface, allowing easy swapping of the Object Storage backend. The
+HTTP and rsync listeners both render the canonical images tree through a
+`vfs.Layout`, which translates the legacy `cdimage.ubuntu.com` and
+`releases.ubuntu.com` trees onto it and back, so the same logic serves both the
+old and the current layouts.
 
 ## Local development
 
@@ -98,19 +99,24 @@ and crawls them into an in-memory index. Listing links and redirects are built f
 required `storage.public_url` so that clients always reach the object store
 directly; ubimi never proxies object bytes.
 
-The first path segment of a request selects the container and the remainder is
-the object prefix, mirroring the Swift URL layout
-(`{public_url}/{container}/{object}`). The in-memory index is consulted first;
-only when it has no matching object or listing are the ordered `[[route]]` rules
-tried. Those rules match on host and either a path prefix or a regular
-expression, allowing legacy URLs to be migrated to the current layout:
+Requests are served through one of the `vfs` tree layouts, selected per request
+hostname by the `[layouts]` table. The `images` layout is the canonical tree
+whose first path segment selects the container and whose remainder is the object
+prefix, mirroring the Swift URL layout (`{public_url}/{container}/{object}`).
+The `cdimage` and `releases` layouts present the legacy `cdimage.ubuntu.com` and
+`releases.ubuntu.com` trees, translating each request path onto the canonical
+object name before looking it up. Hosts not listed fall back to the `images`
+layout:
 
-- a `path` prefix rule may reference `{path}` (the URI remainder) and
-  `{container}` (the first path segment) in its target;
-- a `match` rule is a regular expression whose named capture groups are
-  referenced as `{name}` in the target, so segments can be reordered, e.g.
-  `^/(?P<product>[^/]+)/releases/(?P<series>[^/]+)/?$` →
-  `https://images.ubuntu.com/images/{series}/{product}`.
+```toml
+[layouts]
+"cdimage.ubuntu.com"  = "cdimage"
+"releases.ubuntu.com" = "releases"
+```
+
+An indexed object is served with a redirect to the object store; directories are
+rendered as listings. This replaces the earlier host+URI redirect farm, so the
+same layout logic drives both the HTTP and rsync listeners.
 
 ## Testing
 
@@ -153,5 +159,5 @@ juju config ubuntu-images-indexer password=secret://<secret-id>
 
 The charm renders the equivalent `config.toml` into the workload container at
 `/etc/ubimi/config.toml` and starts ubimi under Pebble. The `ingress` relation
-can expose the listings externally. The legacy redirect farm (the `[[route]]`
-rules) is not yet exposed through charm configuration.
+can expose the listings externally. The per-host `[layouts]` table is not yet
+exposed through charm configuration.

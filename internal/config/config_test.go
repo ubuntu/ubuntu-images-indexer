@@ -42,17 +42,20 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadRouteDefaultsStatus(t *testing.T) {
+func TestLoadLayouts(t *testing.T) {
 	cfg, err := Load(write(t, minimal+`
-[[route]]
-path = "/legacy/"
-target = "https://images.example.com/{path}"
+[layouts]
+"cdimage.ubuntu.com" = "cdimage"
+"releases.ubuntu.com" = "releases"
 `))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(cfg.Routes) != 1 || cfg.Routes[0].Status != 302 {
-		t.Fatalf("routes = %+v, want one with status 302", cfg.Routes)
+	if got := cfg.Layouts["cdimage.ubuntu.com"]; got != "cdimage" {
+		t.Errorf("cdimage.ubuntu.com = %q, want cdimage", got)
+	}
+	if got := cfg.Layouts["releases.ubuntu.com"]; got != "releases" {
+		t.Errorf("releases.ubuntu.com = %q, want releases", got)
 	}
 }
 
@@ -73,24 +76,9 @@ password = "p"
 project = "pr"
 public_url = "images.example.com"
 `,
-		"route without target": minimal + `
-[[route]]
-path = "/x/"
-`,
-		"invalid regex match": minimal + `
-[[route]]
-match = "["
-target = "https://images.example.com/{1}"
-`,
-		"both path and match": minimal + `
-[[route]]
-path = "/x/"
-match = "^/x$"
-target = "https://images.example.com/"
-`,
-		"neither path nor match": minimal + `
-[[route]]
-target = "https://images.example.com/"
+		"unknown layout": minimal + `
+[layouts]
+"example.com" = "nope"
 `,
 	}
 	for name, body := range cases {
@@ -153,27 +141,6 @@ public_url = "https://images.example.com"
 		if !tc.valid && err == nil {
 			t.Errorf("%s: Load succeeded, want error", name)
 		}
-	}
-}
-
-func TestLoadCompilesRegexRoute(t *testing.T) {
-	cfg, err := Load(write(t, minimal+`
-[[route]]
-host   = "cdimage.ubuntu.com"
-match  = "^/(?P<product>[^/]+)/releases/(?P<series>[^/]+)/?$"
-target = "https://images.ubuntu.com/images/{series}/{product}"
-`))
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(cfg.Routes) != 1 {
-		t.Fatalf("routes = %d, want 1", len(cfg.Routes))
-	}
-	if cfg.Routes[0].Regexp == nil {
-		t.Fatal("route Regexp was not compiled")
-	}
-	if cfg.Routes[0].Status != 302 {
-		t.Errorf("status = %d, want default 302", cfg.Routes[0].Status)
 	}
 }
 

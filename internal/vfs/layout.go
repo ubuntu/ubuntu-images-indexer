@@ -180,12 +180,7 @@ func (v *View) Open(name string) (fs.File, error) {
 
 	v.mu.Lock()
 	v.ensureLocked()
-	obj, ok := v.objects[name]
-	if !ok {
-		if canonical, found := v.layout.canonical(name); found {
-			obj, ok = v.byObject[canonical]
-		}
-	}
+	obj, ok := v.lookupLocked(name)
 	files, dirs := v.childrenLocked(name)
 	v.mu.Unlock()
 
@@ -203,6 +198,37 @@ func (v *View) Open(name string) (fs.File, error) {
 		return nil, notExist(name)
 	}
 	return &dirFile{src: v, name: name}, nil
+}
+
+// Resolve returns the storage container and object name backing the virtual
+// path, reporting whether the path names an indexed object. It is used by
+// frontends that redirect to the object store rather than stream the bytes.
+func (v *View) Resolve(name string) (container, object string, ok bool) {
+	if !fs.ValidPath(name) {
+		return "", "", false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.ensureLocked()
+	obj, ok := v.lookupLocked(name)
+	if !ok {
+		return "", "", false
+	}
+	return obj.container, obj.object.Name, true
+}
+
+// lookupLocked resolves a virtual path to its canonical object. The virtual
+// path is tried directly first (so the images layout keeps its container
+// prefix), then through the layout's canonical translation.
+func (v *View) lookupLocked(name string) (canonicalObject, bool) {
+	if obj, ok := v.objects[name]; ok {
+		return obj, true
+	}
+	if canonical, found := v.layout.canonical(name); found {
+		obj, ok := v.byObject[canonical]
+		return obj, ok
+	}
+	return canonicalObject{}, false
 }
 
 func (v *View) entries(name string) []fs.DirEntry {

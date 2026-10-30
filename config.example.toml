@@ -41,25 +41,11 @@ refresh_interval = "5m"
 modules = ["cdimage", "releases", "images"]
 # module = "ubimi"  # deprecated: adds a single direct-container module
 
-# Optional redirect farm for legacy URLs. Rules are evaluated in order and
-# matched on host (exact, *.suffix, or any when empty). Each rule uses either a
-# path prefix (path) with {path}/{container} in the target, or a regular
-# expression (match) with named capture groups referenced as {name}.
-
-[[route]]
-host   = "old-images.example.com"
-path   = "/"
-target = "https://images.example.com/{path}"
-status = 302
-
-[[route]]
-path   = "/legacy/"
-target = "https://images.example.com/{path}"
-
-# Reorder path segments, e.g. cdimage.ubuntu.com/ubuntu/releases/24.04 ->
-# images.ubuntu.com/images/24.04/ubuntu.
-[[route]]
-host   = "cdimage.ubuntu.com"
-match  = "^/(?P<product>[^/]+)/releases/(?P<series>[^/]+)/?$"
-target = "https://images.ubuntu.com/images/{series}/{product}"
-status = 302
+# Optional per-host tree layouts for the HTTP listener. Each host is served the
+# named layout (cdimage, releases or images), which translates the legacy tree
+# onto the canonical images tree and redirects object requests to the object
+# store. Hosts not listed fall back to the images layout, whose first path
+# segment selects the container (mirroring the Swift URL layout).
+[layouts]
+"cdimage.ubuntu.com"  = "cdimage"
+"releases.ubuntu.com" = "releases"
