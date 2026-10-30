@@ -61,7 +61,9 @@ through one module per legacy layout:
   as `ubuntu/releases/noble/release/...` to `noble/ubuntu/...`;
 - `releases` presents the old `releases.ubuntu.com` tree, translating paths
   such as `24.04/ubuntu-...iso` to `24.04/ubuntu/...iso`;
-- `images` exposes the canonical tree unchanged.
+- `images` exposes the canonical tree unchanged, but keeps each object's
+  per-series container as the first path segment
+  (`noble/24.04/ubuntu/...`).
 
 ```sh
 # in config.toml
@@ -71,7 +73,7 @@ modules = ["cdimage", "releases", "images"]
 
 rsync rsync://localhost:873/cdimage/ubuntu/releases/noble/release/...
 rsync rsync://localhost:873/releases/24.04/
-rsync rsync://localhost:873/images/24.04/ubuntu/
+rsync rsync://localhost:873/images/noble/24.04/ubuntu/
 ```
 
 Module names other than these expose all containers directly, preserving the

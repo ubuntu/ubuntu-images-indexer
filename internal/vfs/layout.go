@@ -89,13 +89,16 @@ func (l Layout) canonical(name string) (string, bool) {
 	return "", false
 }
 
-// virtual translates a canonical object name to the paths this layout exposes.
-func (l Layout) virtual(name string) []string {
+// virtual translates a canonical object name in container to the paths this
+// layout exposes. The images layout keeps the canonical tree unchanged, but
+// prefixed with the object's per-series container so that the containers stay
+// visible.
+func (l Layout) virtual(container, name string) []string {
 	if name == "" || name == "." || !fs.ValidPath(name) {
 		return nil
 	}
 	if l == LayoutImages {
-		return []string{name}
+		return []string{container + "/" + name}
 	}
 	if !strings.Contains(name, "/") {
 		return []string{name} // shared root files
@@ -223,7 +226,7 @@ func (v *View) ensureLocked() {
 		for _, obj := range v.idx.Objects(container) {
 			cobj := canonicalObject{container: container, object: obj}
 			byObject[obj.Name] = cobj
-			for _, name := range v.layout.virtual(obj.Name) {
+			for _, name := range v.layout.virtual(container, obj.Name) {
 				if name == "" || !fs.ValidPath(name) {
 					continue
 				}

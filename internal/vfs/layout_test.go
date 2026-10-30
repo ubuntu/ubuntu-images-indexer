@@ -44,7 +44,7 @@ func TestLayoutVirtual(t *testing.T) {
 		canonical string
 		want      []string
 	}{
-		{LayoutImages, "24.04/ubuntu/a.iso", []string{"24.04/ubuntu/a.iso"}},
+		{LayoutImages, "24.04/ubuntu/a.iso", []string{"noble/24.04/ubuntu/a.iso"}},
 		{LayoutReleases, "24.04/ubuntu/a.iso", []string{"24.04/a.iso"}},
 		{LayoutReleases, "noble/ubuntu/a.iso", []string{"noble/a.iso"}},
 		{LayoutReleases, "24.04/netboot/amd64/linux", []string{"24.04/netboot/amd64/linux"}},
@@ -58,7 +58,7 @@ func TestLayoutVirtual(t *testing.T) {
 		{LayoutCDImage, "focal/netboot/index.html", []string{"netboot/focal/index.html"}},
 	}
 	for _, tc := range cases {
-		got := tc.layout.virtual(tc.canonical)
+		got := tc.layout.virtual("noble", tc.canonical)
 		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
 			t.Errorf("%s virtual(%q) = %v; want %v", tc.layout, tc.canonical, got, tc.want)
 		}
@@ -153,10 +153,12 @@ func TestViewReleasesTree(t *testing.T) {
 
 func TestViewImagesTree(t *testing.T) {
 	v := newLayoutView(t, LayoutImages)
-	if got := readFile(t, v, "24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"); got != "desktop" {
+	// The images layout keeps the canonical tree but prefixes each path with
+	// the object's (per-series) container.
+	if got := readFile(t, v, "images/24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"); got != "desktop" {
 		t.Errorf("content = %q", got)
 	}
-	if got := readFile(t, v, "24.04/kubuntu/kubuntu-24.04.5-desktop-amd64.iso"); got != "kubuntu" {
+	if got := readFile(t, v, "images/24.04/kubuntu/kubuntu-24.04.5-desktop-amd64.iso"); got != "kubuntu" {
 		t.Errorf("kubuntu content = %q", got)
 	}
 }
@@ -166,7 +168,7 @@ func TestViewRootListing(t *testing.T) {
 		layout Layout
 		want   []string
 	}{
-		{LayoutImages, []string{"24.04", "noble"}},
+		{LayoutImages, []string{"images"}},
 		{LayoutReleases, []string{"24.04", "noble"}},
 		{LayoutCDImage, []string{"kubuntu", "netboot", "ubuntu", "ubuntu-base", "ubuntu-core", "ubuntu-server"}},
 	}
@@ -231,6 +233,26 @@ func TestViewAggregatesContainers(t *testing.T) {
 	// The legacy "releases" container must not leak into the canonical tree.
 	if _, err := v.Open("HEADER.html"); err == nil {
 		t.Errorf("legacy releases object unexpectedly visible")
+	}
+
+	// The images layout keeps the container as the top-level path segment.
+	vi := NewLayout(context.Background(), idx, st, LayoutImages)
+	entries, err = fs.ReadDir(vi, ".")
+	if err != nil {
+		t.Fatalf("images ReadDir root: %v", err)
+	}
+	got = got[:0]
+	for _, e := range entries {
+		got = append(got, e.Name())
+	}
+	if want := "focal,noble"; strings.Join(got, ",") != want {
+		t.Fatalf("images root entries = %v, want %v", got, want)
+	}
+	if c := readFile(t, vi, "noble/24.04/ubuntu/noble.iso"); c != "noble" {
+		t.Errorf("images noble content = %q", c)
+	}
+	if c := readFile(t, vi, "focal/20.04/ubuntu/focal.iso"); c != "focal" {
+		t.Errorf("images focal content = %q", c)
 	}
 }
 
