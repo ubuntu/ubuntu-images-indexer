@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 
@@ -160,12 +161,12 @@ func TestViewReleasesTree(t *testing.T) {
 		names = append(names, e.Name())
 	}
 	for _, want := range []string{"netboot", "ubuntu-24.04.3-desktop-amd64.iso"} {
-		if !contains(names, want) {
+		if !slices.Contains(names, want) {
 			t.Errorf("24.04 entries = %v, missing %q", names, want)
 		}
 	}
 	for _, unwanted := range []string{"kubuntu-24.04.5-desktop-amd64.iso"} {
-		if contains(names, unwanted) {
+		if slices.Contains(names, unwanted) {
 			t.Errorf("24.04 entries = %v, unexpectedly contains %q", names, unwanted)
 		}
 	}
@@ -288,13 +289,4 @@ func readFile(t *testing.T, fsys fs.FS, name string) string {
 		t.Fatalf("ReadAll %q: %v", name, err)
 	}
 	return string(b)
-}
-
-func contains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
 }
