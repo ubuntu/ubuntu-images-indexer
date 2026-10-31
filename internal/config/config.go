@@ -13,10 +13,10 @@ import (
 
 // knownLayouts are the tree layouts the HTTP listener can expose per host. The
 // names match the rsync modules and vfs.ParseLayout.
-var knownLayouts = map[string]bool{
-	"cdimage":  true,
-	"releases": true,
-	"images":   true,
+var knownLayouts = []string{
+	"cdimage",
+	"releases",
+	"images",
 }
 
 // Config is the top-level ubimi configuration.
@@ -152,7 +152,7 @@ func (c *Config) validate() error {
 		return fmt.Errorf("storage.public_url %q must be an absolute URL", s.PublicURL)
 	}
 	for host, layout := range c.Layouts {
-		if !knownLayouts[layout] {
+		if !slices.Contains(knownLayouts, layout) {
 			return fmt.Errorf("layouts: host %q maps to unknown layout %q", host, layout)
 		}
 	}
