@@ -68,22 +68,33 @@ func TestLayoutVirtual(t *testing.T) {
 
 func newLayoutView(t *testing.T, layout Layout) *View {
 	t.Helper()
-	content := map[string]string{
-		"images/24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso":           "desktop",
-		"images/24.04/ubuntu/SHA256SUMS":                                 "sums",
-		"images/noble/ubuntu/ubuntu-24.04.5-desktop-amd64.iso":           "noble-desktop",
-		"images/noble/ubuntu-server/noble-live-server-amd64.iso":         "server",
-		"images/24.04/ubuntu-core/ubuntu-core-24-amd64.img.xz":           "core",
-		"images/24.04/netboot/amd64/linux":                               "kernel",
-		"images/noble/ubuntu-base/ubuntu-base-24.04.3-base-amd64.tar.gz": "base",
-		"images/24.04/kubuntu/kubuntu-24.04.5-desktop-amd64.iso":         "kubuntu",
+	// The canonical tree is spread across one container per series: the
+	// container is the series codename and each object is named
+	// {release}/{product}/{path}.
+	content := map[string]map[string]string{
+		"noble": {
+			"24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso":           "desktop",
+			"24.04/ubuntu/SHA256SUMS":                                 "sums",
+			"noble/ubuntu/ubuntu-24.04.5-desktop-amd64.iso":           "noble-desktop",
+			"noble/ubuntu-server/noble-live-server-amd64.iso":         "server",
+			"24.04/ubuntu-core/ubuntu-core-24-amd64.img.xz":           "core",
+			"24.04/netboot/amd64/linux":                               "kernel",
+			"noble/ubuntu-base/ubuntu-base-24.04.3-base-amd64.tar.gz": "base",
+			"24.04/kubuntu/kubuntu-24.04.5-desktop-amd64.iso":         "kubuntu",
+		},
+		"resolute": {
+			"26.04/ubuntu/ubuntu-26.04.1-desktop-amd64.iso": "resolute-desktop",
+		},
 	}
 	objects := map[string][]storage.Object{}
-	for name := range content {
-		_, object, _ := strings.Cut(name, "/")
-		objects["images"] = append(objects["images"], storage.Object{Name: object, Size: int64(len(content[name]))})
+	flat := map[string]string{}
+	for container, files := range content {
+		for name, body := range files {
+			objects[container] = append(objects[container], storage.Object{Name: name, Size: int64(len(body))})
+			flat[container+"/"+name] = body
+		}
 	}
-	st := fakeStorage{objects: objects, content: content}
+	st := fakeStorage{objects: objects, content: flat}
 	idx := index.New()
 	if err := idx.Refresh(context.Background(), st); err != nil {
 		t.Fatal(err)
@@ -98,9 +109,9 @@ func TestViewResolve(t *testing.T) {
 		container string
 		object    string
 	}{
-		{LayoutImages, "images/24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso", "images", "24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
-		{LayoutReleases, "24.04/ubuntu-24.04.3-desktop-amd64.iso", "images", "24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
-		{LayoutCDImage, "ubuntu/releases/24.04/release/ubuntu-24.04.3-desktop-amd64.iso", "images", "24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
+		{LayoutImages, "noble/24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso", "noble", "24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
+		{LayoutReleases, "24.04/ubuntu-24.04.3-desktop-amd64.iso", "noble", "24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
+		{LayoutCDImage, "ubuntu/releases/24.04/release/ubuntu-24.04.3-desktop-amd64.iso", "noble", "24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
 	}
 	for _, tc := range cases {
 		v := newLayoutView(t, tc.layout)
@@ -176,11 +187,14 @@ func TestViewImagesTree(t *testing.T) {
 	v := newLayoutView(t, LayoutImages)
 	// The images layout keeps the canonical tree but prefixes each path with
 	// the object's (per-series) container.
-	if got := readFile(t, v, "images/24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"); got != "desktop" {
+	if got := readFile(t, v, "noble/24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"); got != "desktop" {
 		t.Errorf("content = %q", got)
 	}
-	if got := readFile(t, v, "images/24.04/kubuntu/kubuntu-24.04.5-desktop-amd64.iso"); got != "kubuntu" {
+	if got := readFile(t, v, "noble/24.04/kubuntu/kubuntu-24.04.5-desktop-amd64.iso"); got != "kubuntu" {
 		t.Errorf("kubuntu content = %q", got)
+	}
+	if got := readFile(t, v, "resolute/26.04/ubuntu/ubuntu-26.04.1-desktop-amd64.iso"); got != "resolute-desktop" {
+		t.Errorf("resolute content = %q", got)
 	}
 }
 
@@ -189,8 +203,8 @@ func TestViewRootListing(t *testing.T) {
 		layout Layout
 		want   []string
 	}{
-		{LayoutImages, []string{"images"}},
-		{LayoutReleases, []string{"24.04", "noble"}},
+		{LayoutImages, []string{"noble", "resolute"}},
+		{LayoutReleases, []string{"24.04", "26.04", "noble"}},
 		{LayoutCDImage, []string{"kubuntu", "netboot", "ubuntu", "ubuntu-base", "ubuntu-core", "ubuntu-server"}},
 	}
 	for _, tc := range cases {
