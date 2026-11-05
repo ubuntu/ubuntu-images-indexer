@@ -31,9 +31,9 @@ the object bytes through ubimi.
 The architecture of ubimi keeps the swift calls abstracted behind a generic
 "storage" interface, allowing easy swapping of the Object Storage backend. The
 HTTP and rsync listeners both render the canonical images tree through a
-`vfs.Layout`, which translates the legacy `cdimage.ubuntu.com` and
-`releases.ubuntu.com` trees onto it and back, so the same logic serves both the
-old and the current layouts.
+`vfs.Layout`, which projects the legacy `cdimage.ubuntu.com` and
+`releases.ubuntu.com` trees out of it, so the same semantic model serves both
+the old and the current layouts.
 
 ## Local development
 
@@ -54,17 +54,24 @@ Building requires a C toolchain (cgo), because the rsync support pulls in the
 
 ubimi can optionally also speak the rsync daemon protocol
 (backed by [`gokrazy/rsync`](https://github.com/gokrazy/rsync)). The object store
-holds the canonical images tree as `{series}/{product}/{path}` object names,
-spread across containers (one per series). The rsync listener exposes that tree
-through one module per legacy layout:
+holds the canonical images tree as `{release}/{product}/{path}` object names,
+spread across containers (one per series, named after the series codename). The
+rsync listener exposes that tree through one module per legacy layout:
 
-- `cdimage` presents the old `cdimage.ubuntu.com` tree, translating paths such
-  as `ubuntu/releases/noble/release/...` to `noble/ubuntu/...`;
-- `releases` presents the old `releases.ubuntu.com` tree, translating paths
-  such as `24.04/ubuntu-...iso` to `24.04/ubuntu/...iso`;
+- `cdimage` presents the old `cdimage.ubuntu.com` tree, projecting a canonical
+  object onto paths such as `ubuntu/releases/noble/release/...`;
+- `releases` presents the old `releases.ubuntu.com` tree, projecting onto paths
+  such as `24.04/ubuntu-...iso`;
 - `images` exposes the canonical tree unchanged, but keeps each object's
   per-series container as the first path segment
   (`noble/24.04/ubuntu/...`).
+
+The legacy layouts are projections of the parsed canonical tree rather than
+string rewrites: the release series names the directory (its version, and the
+container's codename wherever the legacy tree keeps both) and the object path is
+carried through. The layout module (`internal/images`) discovers series,
+codenames, products and point releases from the tree itself, so nothing about a
+particular series is configured or hard-coded.
 
 ```sh
 # in config.toml
@@ -104,9 +111,8 @@ hostname by the `[layouts]` table. The `images` layout is the canonical tree
 whose first path segment selects the container and whose remainder is the object
 prefix, mirroring the Swift URL layout (`{public_url}/{container}/{object}`).
 The `cdimage` and `releases` layouts present the legacy `cdimage.ubuntu.com` and
-`releases.ubuntu.com` trees, translating each request path onto the canonical
-object name before looking it up. Hosts not listed fall back to the `images`
-layout:
+`releases.ubuntu.com` trees, projected from the canonical objects. Hosts not
+listed fall back to the `images` layout:
 
 ```toml
 [layouts]
@@ -117,6 +123,18 @@ layout:
 An indexed object is served with a redirect to the object store; directories are
 rendered as listings. This replaces the earlier host+URI redirect farm, so the
 same layout logic drives both the HTTP and rsync listeners.
+
+### Latest permalinks
+
+The HTTP listener also answers a synthetic `latest` segment on the canonical
+layout, `{container}/latest/{product}/...`, redirecting (302) to the newest
+release of that product in the series — straight to the object store when it
+names an object, or to the concrete directory otherwise. For example, with
+`noble` at `24.04` and its newest `ubuntu` release at `24.04.5`,
+`/noble/latest/ubuntu/` redirects to `/noble/24.04.5/ubuntu/`.
+
+The segment is entirely virtual: it is never inserted into the `fs.FS`, so it
+does not appear in listings and is invisible to the rsync listener.
 
 ## Testing
 
