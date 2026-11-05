@@ -2,6 +2,7 @@ package vfs
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"slices"
 	"strings"
@@ -13,8 +14,8 @@ import (
 )
 
 // Layout identifies a legacy tree layout exposed over rsync. The object store
-// itself keeps the new canonical layout, spread across containers as
-// {series}/{product}/{path} object names.
+// itself keeps the new canonical layout: one container per series, named after
+// the series codename, holding {release}/{product}/{path} object names.
 type Layout string
 
 const (
@@ -44,56 +45,14 @@ func ParseLayout(name string) (Layout, bool) {
 	}
 }
 
-// canonical translates a path in this layout to an object in the canonical
-// images container tree.
-func (l Layout) canonical(name string) (string, bool) {
-	if name == "" || name == "." || !fs.ValidPath(name) {
-		return "", false
-	}
-	if l == LayoutImages {
-		return name, true
-	}
-	if !strings.Contains(name, "/") {
-		return name, true // shared root files such as HEADER.html
-	}
-
-	parts := strings.Split(name, "/")
-	switch l {
-	case LayoutReleases:
-		series, rest, _ := strings.Cut(name, "/")
-		if strings.HasPrefix(rest, "netboot/") {
-			return series + "/netboot/" + strings.TrimPrefix(rest, "netboot/"), true
-		}
-		return series + "/ubuntu/" + rest, true
-
-	case LayoutCDImage:
-		if parts[0] == "netboot" && len(parts) >= 3 {
-			return parts[1] + "/netboot/" + strings.Join(parts[2:], "/"), true
-		}
-		if parts[0] == "ubuntu-core" && len(parts) >= 5 {
-			series := parts[1]
-			if !strings.Contains(series, ".") {
-				series += ".04"
-			}
-			return series + "/ubuntu-core/" + strings.Join(parts[4:], "/"), true
-		}
-		if len(parts) >= 5 && strings.HasPrefix(parts[2], "daily-") {
-			return parts[1] + "/" + parts[0] + "/" + strings.Join(parts[4:], "/"), true
-		}
-		if len(parts) >= 5 && parts[1] == "releases" && parts[3] == "release" {
-			return parts[2] + "/" + parts[0] + "/" + strings.Join(parts[4:], "/"), true
-		}
-		if len(parts) >= 4 && parts[1] == "releases" {
-			return parts[2] + "/" + parts[0] + "/" + strings.Join(parts[3:], "/"), true
-		}
-	}
-	return "", false
-}
-
 // virtual translates a canonical object name in container to the paths this
-// layout exposes. The images layout keeps the canonical tree unchanged, but
-// prefixed with the object's per-series container so that the containers stay
-// visible.
+// layout exposes. The projection is derived from the parsed object: the
+// release series names the legacy directory, both by version and by the
+// container's codename wherever the legacy tree keeps both, and the object
+// path is carried through unchanged.
+//
+// The images layout instead keeps the canonical tree, prefixed with the
+// object's per-series container so that the containers stay visible.
 func (l Layout) virtual(container, name string) []string {
 	if name == "" || name == "." || !fs.ValidPath(name) {
 		return nil
@@ -102,43 +61,118 @@ func (l Layout) virtual(container, name string) []string {
 		return []string{container + "/" + name}
 	}
 	if !strings.Contains(name, "/") {
-		return []string{name} // shared root files
+		return []string{name} // shared root files such as HEADER.html
 	}
 
-	series, rest, _ := strings.Cut(name, "/")
-	product, sub, ok := strings.Cut(rest, "/")
+	obj, ok := images.Parse(container, name)
 	if !ok {
 		return nil
 	}
+	series, versioned := obj.Series()
 
 	switch l {
 	case LayoutReleases:
-		switch product {
+		switch obj.Product {
 		case "ubuntu":
-			return []string{series + "/" + sub}
+			return expand(releaseDirs(series, versioned, container), func(d string) string {
+				return d + "/" + obj.Path
+			})
 		case "netboot":
-			return []string{series + "/netboot/" + sub}
+			// releases.ubuntu.com keys netboot by version.
+			if versioned {
+				return []string{series.String() + "/netboot/" + obj.Path}
+			}
+			if container != "" {
+				return []string{container + "/netboot/" + obj.Path}
+			}
 		}
+
 	case LayoutCDImage:
-		switch product {
+		switch obj.Product {
 		case "ubuntu-core":
-			major, _, _ := strings.Cut(series, ".")
-			return []string{"ubuntu-core/" + major + "/stable/current/" + sub}
-		case "ubuntu-server":
+			if versioned {
+				return []string{fmt.Sprintf("ubuntu-core/%d/stable/current/%s", series.Major, obj.Path)}
+			}
+		case "ubuntu-server", "ubuntu-wsl":
+			d := releaseDir(series, versioned, container)
+			if d == "" {
+				break
+			}
 			channel := "daily-live"
-			if strings.Contains(sub, "preinstalled") {
+			if obj.Product == "ubuntu-server" && strings.Contains(obj.Path, "preinstalled") {
 				channel = "daily-preinstalled"
 			}
-			return []string{"ubuntu-server/" + series + "/" + channel + "/current/" + sub}
-		case "ubuntu-wsl":
-			return []string{"ubuntu-wsl/" + series + "/daily-live/current/" + sub}
+			return []string{obj.Product + "/" + d + "/" + channel + "/current/" + obj.Path}
 		case "netboot":
-			return []string{"netboot/" + series + "/" + sub}
+			// cdimage.ubuntu.com keys netboot by codename.
+			if container != "" {
+				return []string{"netboot/" + container + "/" + obj.Path}
+			}
+			if versioned {
+				return []string{"netboot/" + series.String() + "/" + obj.Path}
+			}
 		default:
-			return []string{product + "/releases/" + series + "/release/" + sub}
+			return expand(releaseDirs(series, versioned, container), func(d string) string {
+				return obj.Product + "/releases/" + d + "/release/" + obj.Path
+			})
 		}
 	}
 	return nil
+}
+
+// aliases returns other virtual paths that name the same object but are not
+// materialised by virtual, such as the dated build directories the cdimage
+// tree keeps alongside its "current" one.
+func (l Layout) aliases(name string) []string {
+	if l != LayoutCDImage {
+		return nil
+	}
+	parts := strings.Split(name, "/")
+	if len(parts) < 5 || parts[3] == "current" {
+		return nil
+	}
+	daily := strings.HasPrefix(parts[2], "daily-")
+	stable := parts[0] == "ubuntu-core" && parts[2] == "stable"
+	if !daily && !stable {
+		return nil
+	}
+	parts[3] = "current"
+	return []string{strings.Join(parts, "/")}
+}
+
+// releaseDirs returns the directory names a legacy tree uses for a series: its
+// version and, where different, the container's codename.
+func releaseDirs(series images.Series, versioned bool, codename string) []string {
+	var dirs []string
+	if versioned {
+		dirs = append(dirs, series.String())
+	}
+	if codename != "" && (!versioned || codename != series.String()) {
+		dirs = append(dirs, codename)
+	}
+	return dirs
+}
+
+// releaseDir returns the single directory a legacy tree uses where only one is
+// meaningful: the codename where the tree is keyed by codename, else the
+// version.
+func releaseDir(series images.Series, versioned bool, codename string) string {
+	if codename != "" {
+		return codename
+	}
+	if versioned {
+		return series.String()
+	}
+	return ""
+}
+
+// expand maps each directory to a virtual path.
+func expand(dirs []string, format func(string) string) []string {
+	out := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		out = append(out, format(d))
+	}
+	return out
 }
 
 // canonicalObject pairs a canonical object with the storage container it
@@ -146,24 +180,25 @@ func (l Layout) virtual(container, name string) []string {
 type canonicalObject struct {
 	container string
 	object    storage.Object
+	release   images.Release // used to keep the newest release on a path clash
 }
 
 // View is a read-only fs.FS exposing the canonical images tree through a
 // legacy layout. The canonical tree is spread across the object store's
-// containers: each object's name is {series}/{product}/{path}.
+// containers: the container is the series codename and each object's name is
+// {release}/{product}/{path}.
 type View struct {
 	ctx    context.Context
 	idx    *index.Index
 	st     storage.Storage
 	layout Layout
 
-	mu       sync.RWMutex
-	version  uint64
-	loaded   bool
-	objects  map[string]canonicalObject // virtual path -> object
-	byObject map[string]canonicalObject // canonical object name -> object
-	names    []string
-	catalog  *images.Catalog // series/products/latest discovered from the tree
+	mu      sync.RWMutex
+	version uint64
+	loaded  bool
+	objects map[string]canonicalObject // virtual path -> object
+	names   []string
+	catalog *images.Catalog // series/products/latest discovered from the tree
 }
 
 // NewLayout returns a view of the canonical images tree through layout l.
@@ -219,16 +254,17 @@ func (v *View) Resolve(name string) (container, object string, ok bool) {
 	return obj.container, obj.object.Name, true
 }
 
-// lookupLocked resolves a virtual path to its canonical object. The virtual
-// path is tried directly first (so the images layout keeps its container
-// prefix), then through the layout's canonical translation.
+// lookupLocked resolves a virtual path to its canonical object. Most paths are
+// materialised directly by the layout projection; a few legacy aliases (dated
+// build directories) are normalised to their materialised equivalent first.
 func (v *View) lookupLocked(name string) (canonicalObject, bool) {
 	if obj, ok := v.objects[name]; ok {
 		return obj, true
 	}
-	if canonical, found := v.layout.canonical(name); found {
-		obj, ok := v.byObject[canonical]
-		return obj, ok
+	for _, alias := range v.layout.aliases(name) {
+		if obj, ok := v.objects[alias]; ok {
+			return obj, true
+		}
 	}
 	return canonicalObject{}, false
 }
@@ -246,7 +282,6 @@ func (v *View) ensureLocked() {
 		return
 	}
 	objects := make(map[string]canonicalObject)
-	byObject := make(map[string]canonicalObject)
 	var parsed []images.Object
 	for _, container := range v.idx.Containers() {
 		if legacyContainers[container] {
@@ -254,15 +289,20 @@ func (v *View) ensureLocked() {
 		}
 		for _, obj := range v.idx.Objects(container) {
 			cobj := canonicalObject{container: container, object: obj}
-			byObject[obj.Name] = cobj
+			if o, ok := images.Parse(container, obj.Name); ok {
+				cobj.release = o.Release
+				parsed = append(parsed, o)
+			}
 			for _, name := range v.layout.virtual(container, obj.Name) {
 				if name == "" || !fs.ValidPath(name) {
 					continue
 				}
+				// A legacy path can be shared by several releases of a
+				// series (e.g. per-point SHA256SUMS); keep the newest.
+				if prev, ok := objects[name]; ok && prev.release.Version.Compare(cobj.release.Version) >= 0 {
+					continue
+				}
 				objects[name] = cobj
-			}
-			if o, ok := images.Parse(container, obj.Name); ok {
-				parsed = append(parsed, o)
 			}
 		}
 	}
@@ -272,7 +312,6 @@ func (v *View) ensureLocked() {
 	}
 	slices.Sort(names)
 	v.objects = objects
-	v.byObject = byObject
 	v.names = names
 	v.catalog = images.NewCatalog(parsed)
 	v.version = version
