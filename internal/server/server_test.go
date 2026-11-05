@@ -112,6 +112,36 @@ func TestSubdirListing(t *testing.T) {
 	}
 }
 
+// TestLatestRedirect checks the virtual "latest" permalink: a file redirects
+// straight to the object store, a directory to the concrete tree path.
+func TestLatestRedirect(t *testing.T) {
+	st := fakeStorage{objects: map[string][]storage.Object{
+		"noble": {
+			{Name: "24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso", Size: 10},
+			{Name: "24.04.5/ubuntu/SHA256SUMS", Size: 10},
+		},
+	}}
+	s := newServer(t, st, nil)
+
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/noble/latest/ubuntu/SHA256SUMS", nil))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("file status = %d, want 302", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "https://store/noble/24.04.5/ubuntu/SHA256SUMS" {
+		t.Errorf("file Location = %q", loc)
+	}
+
+	rec = httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/noble/latest/ubuntu/", nil))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("dir status = %d, want 302", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/noble/24.04.5/ubuntu" {
+		t.Errorf("dir Location = %q", loc)
+	}
+}
+
 func TestNotFound(t *testing.T) {
 	st := fakeStorage{objects: map[string][]storage.Object{
 		"images": {{Name: "a.txt", Size: 10}},

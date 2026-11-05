@@ -10,9 +10,10 @@ import (
 // and computes the latest release of every product. Everything it knows is
 // read from the objects it is built from; nothing is configured.
 type Catalog struct {
-	series  map[Series]*seriesInfo
-	aliases map[string]Series
-	latest  map[productKey]Version
+	series     map[Series]*seriesInfo
+	aliases    map[string]Series
+	containers map[string]Series
+	latest     map[productKey]Version
 }
 
 type productKey struct {
@@ -31,9 +32,10 @@ type seriesInfo struct {
 // create a series.
 func NewCatalog(objects []Object) *Catalog {
 	c := &Catalog{
-		series:  make(map[Series]*seriesInfo),
-		aliases: make(map[string]Series),
-		latest:  make(map[productKey]Version),
+		series:     make(map[Series]*seriesInfo),
+		aliases:    make(map[string]Series),
+		containers: make(map[string]Series),
+		latest:     make(map[productKey]Version),
 	}
 
 	// container -> series -> number of versioned objects, used to work out
@@ -85,6 +87,7 @@ func NewCatalog(objects []Object) *Catalog {
 			}
 		}
 		c.aliases[container] = best
+		c.containers[container] = best
 		c.series[best].codenames[container] = struct{}{}
 	}
 
@@ -94,6 +97,14 @@ func NewCatalog(objects []Object) *Catalog {
 // Resolve returns the series a codename or version string names.
 func (c *Catalog) Resolve(alias string) (Series, bool) {
 	s, ok := c.aliases[alias]
+	return s, ok
+}
+
+// ResolveContainer returns the series a container belongs to. Unlike Resolve it
+// only accepts container names, not bare version strings, so it is the right
+// lookup when a path segment is known to name a container.
+func (c *Catalog) ResolveContainer(container string) (Series, bool) {
+	s, ok := c.containers[container]
 	return s, ok
 }
 

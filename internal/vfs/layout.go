@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ubuntu/ubimi/internal/images"
 	"github.com/ubuntu/ubimi/internal/index"
 	"github.com/ubuntu/ubimi/internal/storage"
 )
@@ -162,6 +163,7 @@ type View struct {
 	objects  map[string]canonicalObject // virtual path -> object
 	byObject map[string]canonicalObject // canonical object name -> object
 	names    []string
+	catalog  *images.Catalog // series/products/latest discovered from the tree
 }
 
 // NewLayout returns a view of the canonical images tree through layout l.
@@ -245,6 +247,7 @@ func (v *View) ensureLocked() {
 	}
 	objects := make(map[string]canonicalObject)
 	byObject := make(map[string]canonicalObject)
+	var parsed []images.Object
 	for _, container := range v.idx.Containers() {
 		if legacyContainers[container] {
 			continue
@@ -258,6 +261,9 @@ func (v *View) ensureLocked() {
 				}
 				objects[name] = cobj
 			}
+			if o, ok := images.Parse(container, obj.Name); ok {
+				parsed = append(parsed, o)
+			}
 		}
 	}
 	names := make([]string, 0, len(objects))
@@ -268,8 +274,46 @@ func (v *View) ensureLocked() {
 	v.objects = objects
 	v.byObject = byObject
 	v.names = names
+	v.catalog = images.NewCatalog(parsed)
 	v.version = version
 	v.loaded = true
+}
+
+// latestSegment is the synthetic path segment naming the newest release of a
+// product in a series. It exists only in the HTTP virtual namespace: it is
+// never added to the fs.FS, so it does not appear in listings and rsync never
+// sees it.
+const latestSegment = "latest"
+
+// Latest resolves a virtual path whose release segment is the synthetic
+// "latest" segment to the concrete virtual path of the series' newest release
+// of the named product. It is used by the HTTP listener to redirect. Only the
+// canonical images layout exposes an explicit release and product, so only it
+// answers; the legacy layouts report false.
+func (v *View) Latest(name string) (string, bool) {
+	if v.layout != LayoutImages || !fs.ValidPath(name) {
+		return "", false
+	}
+	parts := strings.Split(name, "/")
+	// {container}/{latest}/{product}/{path...}
+	if len(parts) < 3 || parts[1] != latestSegment {
+		return "", false
+	}
+
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.ensureLocked()
+
+	series, ok := v.catalog.ResolveContainer(parts[0])
+	if !ok {
+		return "", false
+	}
+	release, ok := v.catalog.Latest(series, parts[2])
+	if !ok {
+		return "", false
+	}
+	parts[1] = release.String()
+	return strings.Join(parts, "/"), true
 }
 
 type virtualObject struct {

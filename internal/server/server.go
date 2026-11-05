@@ -83,6 +83,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		name = "."
 	}
 
+	// "latest" is a virtual HTTP-only permalink: resolve it and redirect to
+	// the concrete tree, or straight to the object store if it names an object.
+	if target, ok := view.Latest(name); ok {
+		if container, object, ok := view.Resolve(target); ok {
+			http.Redirect(w, r, s.st.URL(container, object), http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, "/"+target, http.StatusFound)
+		return
+	}
+
 	f, err := view.Open(name)
 	if err != nil {
 		http.NotFound(w, r)

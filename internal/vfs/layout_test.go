@@ -198,6 +198,65 @@ func TestViewImagesTree(t *testing.T) {
 	}
 }
 
+// TestViewLatest checks the HTTP-only synthetic "latest" segment, resolved
+// from the discovered catalog rather than being part of the tree.
+func TestViewLatest(t *testing.T) {
+	st := fakeStorage{
+		objects: map[string][]storage.Object{
+			"noble": {
+				{Name: "24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
+				{Name: "24.04.5/ubuntu/ubuntu-24.04.5-desktop-amd64.iso"},
+				{Name: "24.04.5/ubuntu/SHA256SUMS"},
+				{Name: "24.04/ubuntu-server/noble-live-server-amd64.iso"},
+			},
+			"resolute": {
+				{Name: "26.04.1/ubuntu/ubuntu-26.04.1-desktop-amd64.iso"},
+			},
+		},
+		content: map[string]string{"noble/24.04.5/ubuntu/SHA256SUMS": "sums"},
+	}
+	idx := index.New()
+	if err := idx.Refresh(context.Background(), st); err != nil {
+		t.Fatal(err)
+	}
+	v := NewLayout(context.Background(), idx, st, LayoutImages)
+
+	cases := []struct {
+		virtual string
+		want    string
+		ok      bool
+	}{
+		{"noble/latest/ubuntu", "noble/24.04.5/ubuntu", true},
+		{"noble/latest/ubuntu/ubuntu-24.04.5-desktop-amd64.iso", "noble/24.04.5/ubuntu/ubuntu-24.04.5-desktop-amd64.iso", true},
+		{"noble/latest/ubuntu-server", "noble/24.04/ubuntu-server", true},
+		{"resolute/latest/ubuntu", "resolute/26.04.1/ubuntu", true},
+		{"noble/latest/nope", "", false},
+		{"noble/latest", "", false},
+		{"nope/latest/ubuntu", "", false},
+	}
+	for _, tc := range cases {
+		got, ok := v.Latest(tc.virtual)
+		if ok != tc.ok || got != tc.want {
+			t.Errorf("Latest(%q) = %q, %v; want %q, %v", tc.virtual, got, ok, tc.want, tc.ok)
+		}
+	}
+
+	// The synthetic segment is not part of the fs.FS, so rsync never sees it,
+	// and it does not leak into listings.
+	if _, err := fs.Stat(v, "noble/latest/ubuntu"); err == nil {
+		t.Error("latest segment is visible in the fs.FS")
+	}
+	entries, err := fs.ReadDir(v, "noble")
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() == "latest" {
+			t.Errorf("latest leaked into the noble listing: %v", entries)
+		}
+	}
+}
+
 func TestViewRootListing(t *testing.T) {
 	cases := []struct {
 		layout Layout

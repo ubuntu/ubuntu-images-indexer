@@ -58,6 +58,17 @@ func TestCatalogResolve(t *testing.T) {
 	}
 }
 
+func TestCatalogResolveContainer(t *testing.T) {
+	c := newSampleCatalog(t)
+	if got, ok := c.ResolveContainer("noble"); !ok || got != (Series{24, 4}) {
+		t.Errorf("ResolveContainer(noble) = %v, %v; want 24.04, true", got, ok)
+	}
+	// A bare version string names a series but not a container.
+	if got, ok := c.ResolveContainer("24.04"); ok {
+		t.Errorf("ResolveContainer(24.04) = %v, true; want false", got)
+	}
+}
+
 func TestCatalogSeriesAndCodenames(t *testing.T) {
 	c := newSampleCatalog(t)
 	if got := c.Series(); !slices.Equal(got, []Series{{24, 4}, {26, 4}, {26, 10}}) {
