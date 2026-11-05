@@ -144,6 +144,30 @@ public_url = "https://images.example.com"
 	}
 }
 
+// TestLoadRejectsUnknownKeys guards against stale sections lingering silently:
+// the redirect farm's [[route]] tables were removed from the code long before
+// the config stopped carrying them.
+func TestLoadRejectsUnknownKeys(t *testing.T) {
+	_, err := Load(write(t, minimal+`
+[[route]]
+host   = "old-images.example.com"
+target = "https://images.example.com/{path}"
+`))
+	if err == nil {
+		t.Fatal("Load accepted an unknown [[route]] table, want error")
+	}
+	if !strings.Contains(err.Error(), "route") {
+		t.Errorf("error = %v, want it to name the unknown key", err)
+	}
+}
+
+// TestLoadExample keeps the shipped example loadable and free of unknown keys.
+func TestLoadExample(t *testing.T) {
+	if _, err := Load(filepath.Join("..", "..", "config.example.toml")); err != nil {
+		t.Fatalf("Load(config.example.toml): %v", err)
+	}
+}
+
 func TestRsyncModuleNames(t *testing.T) {
 	cases := []struct {
 		name string

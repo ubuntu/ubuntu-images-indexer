@@ -107,11 +107,21 @@ func (d *Duration) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// Load reads, defaults and validates the configuration at path.
+// Load reads, defaults and validates the configuration at path. Unknown keys
+// are rejected so that a stale or misspelled section (a leftover [[route]]
+// table, say) is a load error rather than being silently ignored.
 func Load(path string) (*Config, error) {
 	var c Config
-	if _, err := toml.DecodeFile(path, &c); err != nil {
+	md, err := toml.DecodeFile(path, &c)
+	if err != nil {
 		return nil, fmt.Errorf("decode %s: %w", path, err)
+	}
+	if undecoded := md.Undecoded(); len(undecoded) > 0 {
+		keys := make([]string, 0, len(undecoded))
+		for _, k := range undecoded {
+			keys = append(keys, k.String())
+		}
+		return nil, fmt.Errorf("invalid config %s: unknown key(s): %s", path, strings.Join(keys, ", "))
 	}
 	c.applyDefaults()
 	if err := c.validate(); err != nil {

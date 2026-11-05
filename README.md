@@ -98,11 +98,13 @@ re-running `go mod vendor` will discard the patch.
 
 ## Configuration
 
-See [`config.example.toml`](config.example.toml) for a full example. ubimi
-authenticates against Keystone (identity API v1, v2 or v3 — inferred from
-`auth_url`, or pinned with `auth_version`), discovers the `object-store` (Swift)
-endpoint from the service catalog, enumerates every container in the account,
-and crawls them into an in-memory index. Listing links and redirects are built from the
+See [`config.example.toml`](config.example.toml) for a full example. Unknown
+keys are rejected at load time, so a stale or misspelled section fails fast
+rather than being ignored. ubimi authenticates against Keystone (identity API
+v1, v2 or v3 — inferred from `auth_url`, or pinned with `auth_version`),
+discovers the `object-store` (Swift) endpoint from the service catalog,
+enumerates every container in the account, and crawls them into an in-memory
+index. Listing links and redirects are built from the
 required `storage.public_url` so that clients always reach the object store
 directly; ubimi never proxies object bytes.
 
