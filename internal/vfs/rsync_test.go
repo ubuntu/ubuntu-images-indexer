@@ -49,6 +49,24 @@ func TestRsyncDaemonServesFS(t *testing.T) {
 		}
 	}
 
+	// A non-recursive listing must produce the one-level listing stock rsync
+	// daemons emit. gokrazy/rsync is vendored with a local patch to
+	// internal/sender/flist.go restoring exactly that, and `go mod vendor`
+	// would silently discard the patch: this check guards against that going
+	// unnoticed.
+	out, err = run(t, rsyncBin, "--list-only", url+"/images/")
+	if err != nil {
+		t.Fatalf("list-only: %v\n%s", err, out)
+	}
+	for _, want := range []string{"a.txt", "dir"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("non-recursive listing missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "b.txt") {
+		t.Errorf("non-recursive listing descended into dir:\n%s", out)
+	}
+
 	// Downloading a file.
 	dst := t.TempDir()
 	if out, err := run(t, rsyncBin, "-a", url+"/images/a.txt", dst+"/"); err != nil {

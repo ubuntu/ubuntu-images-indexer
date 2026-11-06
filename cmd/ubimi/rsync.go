@@ -19,8 +19,9 @@ import (
 )
 
 // serveRsync starts the rsync daemon listener, if configured, and reports
-// fatal errors on errCh.
-func serveRsync(ctx context.Context, cfg config.RsyncConfig, idx *index.Index, st storage.Storage, errCh chan<- error) error {
+// fatal errors on errCh. Modules named after a layout are served by the
+// matching shared view; other modules expose all containers directly.
+func serveRsync(ctx context.Context, cfg config.RsyncConfig, idx *index.Index, st storage.Storage, views vfs.Views, errCh chan<- error) error {
 	if cfg.Listen == "" {
 		return nil
 	}
@@ -29,7 +30,7 @@ func serveRsync(ctx context.Context, cfg config.RsyncConfig, idx *index.Index, s
 	for _, name := range names {
 		var filesystem fs.FS
 		if layout, ok := vfs.ParseLayout(name); ok {
-			filesystem = vfs.NewLayout(ctx, idx, st, layout)
+			filesystem = views[layout]
 		} else {
 			filesystem = vfs.New(ctx, idx, st)
 		}

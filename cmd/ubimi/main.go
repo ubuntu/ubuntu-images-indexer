@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -50,16 +49,17 @@ func run() error {
 		idx.Run(ctx, st, time.Duration(cfg.Index.RefreshInterval))
 	}()
 
+	// One view per layout, shared by the HTTP listener and the rsync daemon:
+	// each layout projection is materialised once per index snapshot.
+	views := vfs.NewViews(ctx, idx, st)
+
+	// Layout names are validated by config.Load.
 	layouts := make(map[string]vfs.Layout, len(cfg.Layouts))
 	for host, name := range cfg.Layouts {
-		layout, ok := vfs.ParseLayout(name)
-		if !ok {
-			return fmt.Errorf("layouts: host %q maps to unknown layout %q", host, name)
-		}
-		layouts[host] = layout
+		layouts[host] = vfs.Layout(name)
 	}
 
-	handler := server.New(ctx, idx, st, layouts)
+	handler := server.New(st, layouts, views)
 	srv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           server.LogRequests(handler),
@@ -75,7 +75,7 @@ func run() error {
 	}()
 
 	if cfg.Rsync.Listen != "" {
-		if err := serveRsync(ctx, cfg.Rsync, idx, st, errCh); err != nil {
+		if err := serveRsync(ctx, cfg.Rsync, idx, st, views, errCh); err != nil {
 			return err
 		}
 	}

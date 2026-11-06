@@ -51,7 +51,7 @@ func newServer(t *testing.T, st storage.Storage, layouts map[string]vfs.Layout) 
 	if err := idx.Refresh(context.Background(), st); err != nil {
 		t.Fatal(err)
 	}
-	return New(context.Background(), idx, st, layouts)
+	return New(st, layouts, vfs.NewViews(context.Background(), idx, st))
 }
 
 func TestObjectRedirect(t *testing.T) {

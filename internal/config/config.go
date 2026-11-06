@@ -11,15 +11,8 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/ubuntu/ubimi/internal/storage"
+	"github.com/ubuntu/ubimi/internal/vfs"
 )
-
-// knownLayouts are the tree layouts the HTTP listener can expose per host. The
-// names match the rsync modules and vfs.ParseLayout.
-var knownLayouts = []string{
-	"cdimage",
-	"releases",
-	"images",
-}
 
 // Config is the top-level ubimi configuration.
 type Config struct {
@@ -34,20 +27,22 @@ type Config struct {
 }
 
 // RsyncConfig enables an additional rsync daemon listener. Modules named after
-// a known layout (cdimage, releases, images) expose the canonical images tree
-// through that layout. Other module names expose the containers directly.
+// a known layout (see vfs.Layouts) expose the canonical images tree through
+// that layout. Other module names expose the containers directly.
 type RsyncConfig struct {
 	Listen  string   `toml:"listen"`  // empty disables the listener
-	Modules []string `toml:"modules"` // defaults to cdimage, releases and images
+	Modules []string `toml:"modules"` // defaults to the known layouts
 	Module  string   `toml:"module"`  // deprecated single module, added to Modules
 }
 
-// ModuleNames returns the configured modules in order, or the three built-in
-// layouts when none are configured.
+// ModuleNames returns the configured modules in order, or the known layouts
+// when none are configured.
 func (c RsyncConfig) ModuleNames() []string {
 	names := slices.Clone(c.Modules)
 	if len(names) == 0 {
-		names = []string{"cdimage", "releases", "images"}
+		for _, l := range vfs.Layouts() {
+			names = append(names, string(l))
+		}
 	}
 	if c.Module != "" && !slices.Contains(names, c.Module) {
 		names = append(names, c.Module)
@@ -179,7 +174,8 @@ func (c *Config) validate() error {
 		return fmt.Errorf("storage.public_url %q must be an absolute URL", s.PublicURL)
 	}
 	for host, layout := range c.Layouts {
-		if !slices.Contains(knownLayouts, layout) {
+		// The layout names are the vfs layouts, shared with the rsync modules.
+		if _, ok := vfs.ParseLayout(layout); !ok {
 			return fmt.Errorf("layouts: host %q maps to unknown layout %q", host, layout)
 		}
 	}

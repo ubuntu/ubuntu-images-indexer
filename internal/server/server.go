@@ -4,7 +4,6 @@
 package server
 
 import (
-	"context"
 	"embed"
 	"fmt"
 	"html/template"
@@ -12,10 +11,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/ubuntu/ubimi/internal/index"
 	"github.com/ubuntu/ubimi/internal/storage"
 	"github.com/ubuntu/ubimi/internal/vfs"
 )
@@ -28,31 +25,26 @@ var tmpl_listing = template.Must(template.ParseFS(tmpllistingFS, "listing.html.t
 // Server serves the canonical images tree through the layout selected for each
 // request hostname, redirecting object requests to the object store.
 type Server struct {
-	ctx      context.Context
-	idx      *index.Index
 	st       storage.Storage
 	layouts  map[string]vfs.Layout // lower-case hostname -> layout
 	fallback vfs.Layout
-
-	mu    sync.Mutex
-	views map[vfs.Layout]*vfs.View
+	views    vfs.Views // one view per known layout, built by the caller
 }
 
-// New returns a Server serving idx and redirecting objects through st. The
-// layouts map selects a tree layout per request hostname; hosts not listed fall
-// back to the images layout, whose first path segment selects the container.
-func New(ctx context.Context, idx *index.Index, st storage.Storage, layouts map[string]vfs.Layout) *Server {
+// New returns a Server redirecting objects through st. The layouts map selects
+// a tree layout per request hostname; hosts not listed fall back to the images
+// layout, whose first path segment selects the container. The views provide
+// one filesystem per layout, built from a shared index.
+func New(st storage.Storage, layouts map[string]vfs.Layout, views vfs.Views) *Server {
 	hosts := make(map[string]vfs.Layout, len(layouts))
 	for host, layout := range layouts {
 		hosts[strings.ToLower(host)] = layout
 	}
 	return &Server{
-		ctx:      ctx,
-		idx:      idx,
 		st:       st,
 		layouts:  hosts,
 		fallback: vfs.LayoutImages,
-		views:    make(map[vfs.Layout]*vfs.View),
+		views:    views,
 	}
 }
 
@@ -86,36 +78,31 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// "latest" is a virtual HTTP-only permalink: resolve it and redirect to
 	// the concrete tree, or straight to the object store if it names an object.
 	if target, ok := view.Latest(name); ok {
-		if container, object, ok := view.Resolve(target); ok {
-			http.Redirect(w, r, s.st.URL(container, object), http.StatusFound)
+		if res, ok := view.ResolvePath(target); ok && res.IsObject() {
+			http.Redirect(w, r, s.st.URL(res.Container, res.Object.Name), http.StatusFound)
 			return
 		}
 		http.Redirect(w, r, "/"+target, http.StatusFound)
 		return
 	}
 
-	f, err := view.Open(name)
-	if err != nil {
+	res, ok := view.ResolvePath(name)
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	if info, err := f.Stat(); err == nil && !info.IsDir() {
+	if res.IsObject() {
 		// An indexed object is served by redirecting to the object store.
-		container, object, ok := view.Resolve(name)
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		http.Redirect(w, r, s.st.URL(container, object), http.StatusFound)
+		http.Redirect(w, r, s.st.URL(res.Container, res.Object.Name), http.StatusFound)
 		return
 	}
-
-	if err := s.renderListing(w, view, clean); err != nil {
+	if err := s.renderListing(w, view, res.Entries, clean); err != nil {
 		http.Error(w, "render error", http.StatusInternalServerError)
 	}
 }
 
-// view returns the layout view for the request host, reusing one per layout.
+// view returns the layout view for the request host. Every layout view is
+// built up front, so this is a plain lookup.
 func (s *Server) view(host string) *vfs.View {
 	name := host
 	if h, _, err := net.SplitHostPort(host); err == nil {
@@ -125,27 +112,10 @@ func (s *Server) view(host string) *vfs.View {
 	if !ok {
 		layout = s.fallback
 	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	v, ok := s.views[layout]
-	if !ok {
-		v = vfs.NewLayout(s.ctx, s.idx, s.st, layout)
-		s.views[layout] = v
-	}
-	return v
+	return s.views[layout]
 }
 
-func (s *Server) renderListing(w http.ResponseWriter, view *vfs.View, clean string) error {
-	name := clean
-	if name == "" {
-		name = "."
-	}
-	entries, err := fs.ReadDir(view, name)
-	if err != nil {
-		return err
-	}
-
+func (s *Server) renderListing(w http.ResponseWriter, view *vfs.View, entries []fs.DirEntry, clean string) error {
 	data := pageData{Path: "/"}
 	if clean != "" {
 		data.Path = "/" + clean + "/"

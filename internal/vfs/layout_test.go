@@ -92,7 +92,7 @@ func newLayoutView(t *testing.T, layout Layout) *View {
 	if err := idx.Refresh(context.Background(), st); err != nil {
 		t.Fatal(err)
 	}
-	return NewLayout(context.Background(), idx, st, layout)
+	return NewCatalog(idx).View(context.Background(), st, layout)
 }
 
 func TestViewResolve(t *testing.T) {
@@ -218,7 +218,8 @@ func TestViewLatest(t *testing.T) {
 	if err := idx.Refresh(context.Background(), st); err != nil {
 		t.Fatal(err)
 	}
-	v := NewLayout(context.Background(), idx, st, LayoutImages)
+	cat := NewCatalog(idx)
+	v := cat.View(context.Background(), st, LayoutImages)
 
 	cases := []struct {
 		virtual string
@@ -301,7 +302,8 @@ func TestViewAggregatesContainers(t *testing.T) {
 	if err := idx.Refresh(context.Background(), st); err != nil {
 		t.Fatal(err)
 	}
-	v := NewLayout(context.Background(), idx, st, LayoutReleases)
+	cat := NewCatalog(idx)
+	v := cat.View(context.Background(), st, LayoutReleases)
 
 	entries, err := fs.ReadDir(v, ".")
 	if err != nil {
@@ -329,7 +331,7 @@ func TestViewAggregatesContainers(t *testing.T) {
 	}
 
 	// The images layout keeps the container as the top-level path segment.
-	vi := NewLayout(context.Background(), idx, st, LayoutImages)
+	vi := cat.View(context.Background(), st, LayoutImages)
 	entries, err = fs.ReadDir(vi, ".")
 	if err != nil {
 		t.Fatalf("images ReadDir root: %v", err)

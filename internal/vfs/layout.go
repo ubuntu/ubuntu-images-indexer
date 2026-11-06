@@ -27,22 +27,20 @@ const (
 	LayoutReleases Layout = "releases"
 )
 
-// legacyContainers hold the old tree layouts (cdimage.ubuntu.com and
-// releases.ubuntu.com). Their objects are not part of the canonical images
-// tree and must not be translated into it.
-var legacyContainers = map[string]bool{
-	string(LayoutCDImage):  true,
-	string(LayoutReleases): true,
+// Layouts lists every known layout. It is the single registry the HTTP host
+// table, the rsync modules and the configuration validation all refer to.
+func Layouts() []Layout {
+	return []Layout{LayoutCDImage, LayoutReleases, LayoutImages}
 }
 
 // ParseLayout returns the layout with the given module name.
 func ParseLayout(name string) (Layout, bool) {
-	switch l := Layout(name); l {
-	case LayoutImages, LayoutCDImage, LayoutReleases:
-		return l, true
-	default:
-		return "", false
+	for _, l := range Layouts() {
+		if l == Layout(name) {
+			return l, true
+		}
 	}
+	return "", false
 }
 
 // virtual translates a canonical object name in container to the paths this
@@ -175,22 +173,18 @@ func expand(dirs []string, format func(string) string) []string {
 	return out
 }
 
-// canonicalObject pairs a canonical object with the storage container it
-// lives in, so its bytes can be streamed on demand.
-type canonicalObject struct {
-	container string
-	object    storage.Object
-	release   images.Release // used to keep the newest release on a path clash
-}
-
 // View is a read-only fs.FS exposing the canonical images tree through a
 // legacy layout. The canonical tree is spread across the object store's
 // containers: the container is the series codename and each object's name is
 // {release}/{product}/{path}.
+//
+// The projection is materialised eagerly, once per index snapshot: the first
+// access after an index refresh rebuilds the virtual path table from the
+// shared Catalog's index.
 type View struct {
-	ctx    context.Context
+	fsView
 	idx    *index.Index
-	st     storage.Storage
+	cat    *Catalog // shared semantic model of the canonical tree
 	layout Layout
 
 	mu      sync.RWMutex
@@ -198,60 +192,84 @@ type View struct {
 	loaded  bool
 	objects map[string]canonicalObject // virtual path -> object
 	names   []string
-	catalog *images.Catalog // series/products/latest discovered from the tree
 }
 
-// NewLayout returns a view of the canonical images tree through layout l.
-func NewLayout(ctx context.Context, idx *index.Index, st storage.Storage, l Layout) *View {
-	return &View{ctx: ctx, idx: idx, st: st, layout: l}
+// View returns a view of the canonical images tree through layout l, reading
+// structure from the catalog's index and contents from st. Streams are opened
+// with ctx so that shutdown cancels in-flight transfers.
+func (c *Catalog) View(ctx context.Context, st storage.Storage, l Layout) *View {
+	v := &View{
+		fsView: fsView{ctx: ctx, st: st},
+		idx:    c.idx,
+		cat:    c,
+		layout: l,
+	}
+	v.m = v
+	return v
 }
 
-// Open implements fs.FS.
-func (v *View) Open(name string) (fs.File, error) {
+// resolve implements pathMapper.
+func (v *View) resolve(name string) (dir bool, obj canonicalObject, ok bool) {
 	if !fs.ValidPath(name) {
-		return nil, notExist(name)
+		return false, canonicalObject{}, false
 	}
-	if name == "." {
-		return &dirFile{src: v, name: "."}, nil
-	}
-
 	v.mu.Lock()
+	defer v.mu.Unlock()
 	v.ensureLocked()
-	obj, ok := v.lookupLocked(name)
+	if obj, ok := v.lookupLocked(name); ok {
+		return false, obj, true
+	}
 	files, dirs := v.childrenLocked(name)
-	v.mu.Unlock()
+	return true, canonicalObject{}, len(files) > 0 || len(dirs) > 0
+}
 
-	if ok {
-		return &objectFile{
-			ctx:       v.ctx,
-			st:        v.st,
-			name:      name,
-			container: obj.container,
-			object:    obj.object.Name,
-			info:      objectInfo(base(name), obj.object),
-		}, nil
-	}
-	if len(files) == 0 && len(dirs) == 0 {
-		return nil, notExist(name)
-	}
-	return &dirFile{src: v, name: name}, nil
+// entries implements pathMapper.
+func (v *View) entries(name string) []fs.DirEntry {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.ensureLocked()
+	return v.entriesLocked(name)
 }
 
 // Resolve returns the storage container and object name backing the virtual
 // path, reporting whether the path names an indexed object. It is used by
 // frontends that redirect to the object store rather than stream the bytes.
 func (v *View) Resolve(name string) (container, object string, ok bool) {
-	if !fs.ValidPath(name) {
-		return "", "", false
-	}
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.ensureLocked()
-	obj, ok := v.lookupLocked(name)
-	if !ok {
+	dir, obj, ok := v.resolve(name)
+	if !ok || dir {
 		return "", "", false
 	}
 	return obj.container, obj.object.Name, true
+}
+
+// Resolution describes a resolved path in a view: either the indexed object
+// it names, or the entries of the directory it names.
+type Resolution struct {
+	Container string         // set when the path names an indexed object
+	Object    storage.Object // ditto
+	Entries   []fs.DirEntry  // set when the path names a directory
+}
+
+// IsObject reports whether the path names an indexed object rather than a
+// directory.
+func (r Resolution) IsObject() bool { return r.Entries == nil }
+
+// ResolvePath resolves a virtual path to either the canonical object backing
+// it or the entries of the directory it names, reporting whether the path
+// exists at all. It is the single lookup the HTTP listener needs: object
+// requests redirect to the store, directories render their entries.
+func (v *View) ResolvePath(name string) (Resolution, bool) {
+	if name == "." {
+		return Resolution{Entries: v.entries(name)}, true
+	}
+	dir, obj, ok := v.resolve(name)
+	if !ok {
+		return Resolution{}, false
+	}
+	if !dir {
+		return Resolution{Container: obj.container, Object: obj.object}, true
+	}
+	return Resolution{Entries: v.entries(name)}, true
 }
 
 // lookupLocked resolves a virtual path to its canonical object. Most paths are
@@ -269,20 +287,12 @@ func (v *View) lookupLocked(name string) (canonicalObject, bool) {
 	return canonicalObject{}, false
 }
 
-func (v *View) entries(name string) []fs.DirEntry {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.ensureLocked()
-	return v.entriesLocked(name)
-}
-
 func (v *View) ensureLocked() {
 	version := v.idx.Version()
 	if v.loaded && v.version == version {
 		return
 	}
 	objects := make(map[string]canonicalObject)
-	var parsed []images.Object
 	for _, container := range v.idx.Containers() {
 		if legacyContainers[container] {
 			continue
@@ -291,7 +301,6 @@ func (v *View) ensureLocked() {
 			cobj := canonicalObject{container: container, object: obj}
 			if o, ok := images.Parse(container, obj.Name); ok {
 				cobj.release = o.Release
-				parsed = append(parsed, o)
 			}
 			for _, name := range v.layout.virtual(container, obj.Name) {
 				if name == "" || !fs.ValidPath(name) {
@@ -313,7 +322,6 @@ func (v *View) ensureLocked() {
 	slices.Sort(names)
 	v.objects = objects
 	v.names = names
-	v.catalog = images.NewCatalog(parsed)
 	v.version = version
 	v.loaded = true
 }
@@ -339,15 +347,12 @@ func (v *View) Latest(name string) (string, bool) {
 		return "", false
 	}
 
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	v.ensureLocked()
-
-	series, ok := v.catalog.ResolveContainer(parts[0])
+	catalog := v.cat.Load()
+	series, ok := catalog.ResolveContainer(parts[0])
 	if !ok {
 		return "", false
 	}
-	release, ok := v.catalog.Latest(series, parts[2])
+	release, ok := catalog.Latest(series, parts[2])
 	if !ok {
 		return "", false
 	}
