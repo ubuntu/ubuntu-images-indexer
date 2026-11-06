@@ -95,8 +95,11 @@ inert unless `listen` is set.
 `gokrazy/rsync` is vendored under `vendor/` with a local patch to
 `internal/sender/flist.go`: upstream does not list a non-recursively requested
 directory's immediate entries, so `rsync --list-only` only emitted `.`. The
-patch restores the one-level listing that stock rsync daemons produce. Note that
-re-running `go mod vendor` will discard the patch.
+patch restores the one-level listing that stock rsync daemons produce. It is
+kept in [`scripts/gokrazy-rsync-list-only.patch`](scripts/gokrazy-rsync-list-only.patch)
+so it can be re-applied after a dependency refresh with `make vendor`, and the
+`internal/vfs` rsync test guards it: re-running `go mod vendor` alone will
+discard the patch, which that test detects.
 
 ## Configuration
 

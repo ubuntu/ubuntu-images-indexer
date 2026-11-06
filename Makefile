@@ -9,6 +9,13 @@ export PYTHONPATH = $(PROJECT):$(PROJECT)/lib:$(SRC)
 update-dependencies:
 	uv lock -U --no-cache
 
+# Refresh the vendored Go dependencies and re-apply the local gokrazy/rsync
+# patch: `go mod vendor` discards it, so the patch is kept in scripts/ and
+# re-applied here. The vfs rsync test guards against it going missing.
+vendor:
+	go mod vendor
+	git apply scripts/gokrazy-rsync-list-only.patch
+
 lint:
 	go vet ./...
 	uv tool run ruff check $(ALL)
