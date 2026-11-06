@@ -19,10 +19,6 @@ PORT = 8080
 RSYNC_PORT = 873
 
 
-class ConfigError(Exception):
-    """Raised when the ubimi configuration cannot be assembled."""
-
-
 def _toml_str(value: str) -> str:
     """Return value as a quoted TOML basic string.
 
@@ -89,20 +85,14 @@ class Indexer:
         listen: str = ":8080",
         refresh_interval: str = "5m",
         rsync_listen: str = "",
-        rsync_module: str = "ubimi",
+        rsync_module: str = "",
     ) -> str:
         """Render the ubimi TOML configuration.
 
-        Raises:
-            ConfigError: when a required value is missing.
+        Only values are transported here: defaults and validation live in the
+        workload's own config loader, which rejects unknown or missing keys at
+        startup.
         """
-        required = {"auth_url": auth_url, "user": user, "public_url": public_url}
-        missing = [name for name, value in required.items() if not value]
-        if missing:
-            raise ConfigError(f"missing required option(s): {', '.join(missing)}")
-        if not password:
-            raise ConfigError("missing required option: password")
-
         lines = [f"listen = {_toml_str(listen)}", "", "[storage]"]
         if auth_version:
             lines.append(f"auth_version = {auth_version}")
@@ -122,12 +112,9 @@ class Indexer:
         lines += ["", "[index]", f"refresh_interval = {_toml_str(refresh_interval)}"]
 
         if rsync_listen:
-            lines += [
-                "",
-                "[rsync]",
-                f"listen = {_toml_str(rsync_listen)}",
-                f"module = {_toml_str(rsync_module)}",
-            ]
+            lines += ["", "[rsync]", f"listen = {_toml_str(rsync_listen)}"]
+            if rsync_module:
+                lines.append(f"module = {_toml_str(rsync_module)}")
 
         return "\n".join(lines) + "\n"
 

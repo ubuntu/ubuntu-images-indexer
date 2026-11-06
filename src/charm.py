@@ -10,7 +10,7 @@ import ops
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 from ops.pebble import APIError, ConnectionError, ProtocolError
 
-from indexer import PORT, RSYNC_PORT, ConfigError, Indexer
+from indexer import PORT, RSYNC_PORT, Indexer
 
 logger = logging.getLogger(__name__)
 
@@ -70,12 +70,12 @@ class UbuntuImagesIndexerCharm(ops.CharmBase):
                 listen=self._config_str("listen", ":8080"),
                 refresh_interval=self._config_str("refresh-interval", "5m"),
                 rsync_listen=self._config_str("rsync-listen"),
-                rsync_module=self._config_str("rsync-module", "ubimi"),
+                rsync_module=self._config_str("rsync-module"),
             )
             self._indexer.update_config(config)
             container.add_layer("ubimi", self._indexer.pebble_layer(), combine=True)
             container.replan()
-        except (ConfigError, ops.ModelError, ConnectionError, ProtocolError, APIError) as e:
+        except (ops.ModelError, ConnectionError, ProtocolError, APIError) as e:
             logger.error("failed to configure ubimi: %s", e)
             self.unit.status = ops.BlockedStatus(
                 "Failed to configure the workload. Check `juju debug-log` for details."

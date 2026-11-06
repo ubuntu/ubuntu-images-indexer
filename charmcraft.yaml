@@ -5,8 +5,8 @@ description: |
   **Ubuntu Images Indexer** is a [charm](https://juju.is/charms-architecture)
   for deploying [ubimi](https://github.com/ubuntu/ubimi), which keeps an
   in-memory index of a Swift-compatible object store (RadosGW) and serves
-  autoindex-style listings plus a host-and-URI redirect farm for legacy URL
-  migration.
+  autoindex-style HTML listings whose links point directly at the object
+  store. An optional rsync daemon streams object bytes for mirroring.
 summary: |
   A charm for deploying an index of a Swift-compatible object store.
 
@@ -111,8 +111,10 @@ config:
         disable the rsync listener.
     rsync-module:
       type: string
-      default: ubimi
-      description: rsync module name exposed by the daemon.
+      description: |
+        Optional name of an extra rsync module exposing all containers
+        directly. Leave empty to expose only the built-in layout modules
+        (cdimage, releases and images).
     password:
       type: secret
       description: |

@@ -90,12 +90,6 @@ type scopedWalker struct {
 	strip     string
 	subdir    string
 	prefix    string
-	// root is the cleaned path fs.WalkDir starts at. It is used to list a
-	// non-recursively requested directory's immediate entries while still
-	// skipping its subdirectories (see the end of walkFn).
-	//
-	// LOCAL PATCH: this field does not exist upstream; see walkFn below.
-	root string
 }
 
 func (s *scopedWalker) walk() error {
@@ -132,8 +126,7 @@ func (s *scopedWalker) walk() error {
 	if strings.HasPrefix(rootname, "/") {
 		rootname = "." + rootname
 	}
-	s.root = path.Clean(rootname)
-	if err := fs.WalkDir(s.source.FS(), s.root, s.walkFn); err != nil {
+	if err := fs.WalkDir(s.source.FS(), path.Clean(rootname), s.walkFn); err != nil {
 		return err
 	}
 	return nil
@@ -351,14 +344,7 @@ func (s *scopedWalker) walkFn(path string, d fs.DirEntry, err error) error {
 
 	// If the status byte is zero, the file-list has terminated.
 
-	// If not asked to recurse, still list the requested directory's immediate
-	// entries (like tridge rsync), but do not descend into subdirectories.
-	//
-	// LOCAL PATCH: upstream unconditionally returns SkipDir for every
-	// directory here, so `rsync --list-only` (which sends -d, not -r) only
-	// ever emitted the requested directory itself. Excluding the walk root
-	// restores the one-level listing that stock rsync daemons produce.
-	if info.Mode().IsDir() && !opts.Recurse() && path != s.root {
+	if info.Mode().IsDir() && !opts.Recurse() {
 		return filepath.SkipDir
 	}
 
