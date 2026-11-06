@@ -4,13 +4,10 @@
 """Representation of the ubimi workload."""
 
 import json
-import logging
 import os
 from pathlib import Path
 
 import ops
-
-logger = logging.getLogger(__name__)
 
 # Location the charm writes the rendered TOML configuration to, matching the
 # rock's default service command.
