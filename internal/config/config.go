@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/ubuntu/ubimi/internal/storage"
 )
 
 // knownLayouts are the tree layouts the HTTP listener can expose per host. The
@@ -68,6 +70,21 @@ type StorageConfig struct {
 	// PublicURL is the externally reachable base used to build listing links
 	// and redirects. It is required and never taken from the Keystone catalog.
 	PublicURL string `toml:"public_url"`
+}
+
+// Options returns the storage options the configured backend is built from.
+func (s StorageConfig) Options() storage.Options {
+	return storage.Options{
+		AuthVersion:   s.AuthVersion,
+		AuthURL:       s.AuthURL,
+		User:          s.User,
+		Password:      s.Password,
+		UserDomain:    s.UserDomain,
+		Project:       s.Project,
+		ProjectDomain: s.ProjectDomain,
+		Region:        s.Region,
+		PublicURL:     s.PublicURL,
+	}
 }
 
 // effectiveAuthVersion returns the identity API version in use: an explicit

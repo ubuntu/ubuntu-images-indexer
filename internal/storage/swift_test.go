@@ -11,12 +11,10 @@ import (
 	"time"
 
 	"github.com/ncw/swift/v2"
-
-	"github.com/ubuntu/ubimi/internal/config"
 )
 
 func TestURL(t *testing.T) {
-	s := New(config.StorageConfig{PublicURL: "https://images.example.com/"})
+	s := New(Options{PublicURL: "https://images.example.com/"})
 	if got, want := s.URL("images", "a b/c.txt"), "https://images.example.com/images/a%20b/c.txt"; got != want {
 		t.Errorf("URL = %q, want %q", got, want)
 	}
@@ -129,7 +127,7 @@ func newTestServer(t *testing.T) string {
 // newTestSwift returns a v3-authenticated Swift storage pointed at a fresh fake
 // identity and Swift endpoint.
 func newTestSwift(t *testing.T) *Swift {
-	return New(config.StorageConfig{
+	return New(Options{
 		AuthURL:   newTestServer(t) + "/v3",
 		User:      "u",
 		Password:  "p",
@@ -152,7 +150,7 @@ func TestAuthVersions(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			s := New(config.StorageConfig{
+			s := New(Options{
 				AuthVersion: tc.version,
 				AuthURL:     newTestServer(t) + tc.path,
 				User:        "u",

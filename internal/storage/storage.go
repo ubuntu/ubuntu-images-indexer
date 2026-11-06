@@ -17,6 +17,24 @@ type Object struct {
 	ETag         string
 }
 
+// Options describes how to reach a Swift-compatible object store. The
+// configuration layer maps its storage section onto it.
+type Options struct {
+	// AuthVersion selects the identity (Keystone) API version: 1, 2 or 3.
+	// Zero (the default) lets the client infer it from AuthURL.
+	AuthVersion   int
+	AuthURL       string
+	User          string
+	Password      string
+	UserDomain    string
+	Project       string
+	ProjectDomain string
+	Region        string
+	// PublicURL is the externally reachable base used to build listing links
+	// and redirects. It is required and never taken from the Keystone catalog.
+	PublicURL string
+}
+
 // Storage is the read-only view of an object store that ubimi needs.
 type Storage interface {
 	// Containers returns the names of every container in the account.

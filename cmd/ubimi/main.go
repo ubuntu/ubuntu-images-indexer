@@ -41,7 +41,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	st := storage.New(cfg.Storage)
+	st := storage.New(cfg.Storage.Options())
 	idx := index.New()
 	go func() {
 		if err := idx.Refresh(ctx, st); err != nil {

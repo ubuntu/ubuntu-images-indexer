@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/ncw/swift/v2"
-
-	"github.com/ubuntu/ubimi/internal/config"
 )
 
 // Swift is a Storage backed by a Swift-compatible object store (RadosGW).
@@ -20,20 +18,20 @@ type Swift struct {
 	publicURL string
 }
 
-// New returns a Swift storage for the given configuration.
-func New(cfg config.StorageConfig) *Swift {
+// New returns a Swift storage for the given options.
+func New(opts Options) *Swift {
 	return &Swift{
 		conn: &swift.Connection{
-			UserName:     cfg.User,
-			ApiKey:       cfg.Password,
-			AuthUrl:      cfg.AuthURL,
-			Domain:       cfg.UserDomain,
-			Tenant:       cfg.Project,
-			TenantDomain: cfg.ProjectDomain,
-			Region:       cfg.Region,
-			AuthVersion:  cfg.AuthVersion,
+			UserName:     opts.User,
+			ApiKey:       opts.Password,
+			AuthUrl:      opts.AuthURL,
+			Domain:       opts.UserDomain,
+			Tenant:       opts.Project,
+			TenantDomain: opts.ProjectDomain,
+			Region:       opts.Region,
+			AuthVersion:  opts.AuthVersion,
 		},
-		publicURL: strings.TrimRight(cfg.PublicURL, "/"),
+		publicURL: strings.TrimRight(opts.PublicURL, "/"),
 	}
 }
 

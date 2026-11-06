@@ -54,8 +54,8 @@ paths=(
   resolute/26.04/ubuntu-base/ubuntu-base-26.04-base-amd64.tar.gz
   resolute/26.04/ubuntu-server/ubuntu-26.04-live-server-amd64.iso
   resolute/26.04/ubuntu-wsl/ubuntu-26.04-wsl-amd64.wsl
-  resolute/26.10/ubuntu/ubuntu-26.10-desktop-amd64.iso
-  resolute/26.10/ubuntu/ubuntu-26.10-live-server-amd64.iso
+  stonking/26.10/ubuntu/ubuntu-26.10-desktop-amd64.iso
+  stonking/26.10/ubuntu/ubuntu-26.10-live-server-amd64.iso
 )
 
 for path in "${paths[@]}"; do
