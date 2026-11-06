@@ -82,7 +82,6 @@ class Indexer:
         listen: str = ":8080",
         refresh_interval: str = "5m",
         rsync_listen: str = "",
-        rsync_module: str = "",
     ) -> str:
         """Render the ubimi TOML configuration.
 
@@ -110,8 +109,6 @@ class Indexer:
 
         if rsync_listen:
             lines += ["", "[rsync]", f"listen = {_toml_str(rsync_listen)}"]
-            if rsync_module:
-                lines.append(f"module = {_toml_str(rsync_module)}")
 
         return "\n".join(lines) + "\n"
 

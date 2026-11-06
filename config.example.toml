@@ -39,7 +39,6 @@ refresh_interval = "5m"
 [rsync]
 # listen = ":873"   # uncomment to enable
 modules = ["cdimage", "releases", "images"]
-# module = "ubimi"  # deprecated: adds a single direct-container module
 
 # Optional per-host tree layouts for the HTTP listener. Each host is served the
 # named layout (cdimage, releases or images), which translates the legacy tree

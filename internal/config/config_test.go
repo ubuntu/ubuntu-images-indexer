@@ -176,8 +176,6 @@ func TestRsyncModuleNames(t *testing.T) {
 	}{
 		{"default layouts", RsyncConfig{}, []string{"cdimage", "releases", "images"}},
 		{"explicit modules", RsyncConfig{Modules: []string{"images", "legacy"}}, []string{"images", "legacy"}},
-		{"legacy module added", RsyncConfig{Module: "ubimi"}, []string{"cdimage", "releases", "images", "ubimi"}},
-		{"legacy module not duplicated", RsyncConfig{Modules: []string{"releases"}, Module: "releases"}, []string{"releases"}},
 	}
 	for _, tc := range cases {
 		if got := tc.cfg.ModuleNames(); strings.Join(got, ",") != strings.Join(tc.want, ",") {

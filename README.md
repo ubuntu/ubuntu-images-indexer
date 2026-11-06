@@ -86,8 +86,8 @@ rsync rsync://localhost:873/releases/24.04/
 rsync rsync://localhost:873/images/noble/24.04/ubuntu/
 ```
 
-Module names other than these expose all containers directly, preserving the
-old single-module behaviour. Unlike the HTTP listener — which redirects clients
+Module names other than these expose all containers directly. Unlike the
+HTTP listener — which redirects clients
 to the object store — the rsync daemon has no redirect mechanism, so file
 transfers are streamed from the object store on demand. The `[rsync]` section is
 inert unless `listen` is set.

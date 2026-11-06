@@ -32,7 +32,6 @@ type Config struct {
 type RsyncConfig struct {
 	Listen  string   `toml:"listen"`  // empty disables the listener
 	Modules []string `toml:"modules"` // defaults to the known layouts
-	Module  string   `toml:"module"`  // deprecated single module, added to Modules
 }
 
 // ModuleNames returns the configured modules in order, or the known layouts
@@ -43,9 +42,6 @@ func (c RsyncConfig) ModuleNames() []string {
 		for _, l := range vfs.Layouts() {
 			names = append(names, string(l))
 		}
-	}
-	if c.Module != "" && !slices.Contains(names, c.Module) {
-		names = append(names, c.Module)
 	}
 	return names
 }

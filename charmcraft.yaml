@@ -109,12 +109,6 @@ config:
       description: |
         Optional rsync daemon bind address, e.g. ":873". Leave empty to
         disable the rsync listener.
-    rsync-module:
-      type: string
-      description: |
-        Optional name of an extra rsync module exposing all containers
-        directly. Leave empty to expose only the built-in layout modules
-        (cdimage, releases and images).
     password:
       type: secret
       description: |

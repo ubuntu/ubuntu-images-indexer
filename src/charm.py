@@ -70,7 +70,6 @@ class UbuntuImagesIndexerCharm(ops.CharmBase):
                 listen=self._config_str("listen", ":8080"),
                 refresh_interval=self._config_str("refresh-interval", "5m"),
                 rsync_listen=self._config_str("rsync-listen"),
-                rsync_module=self._config_str("rsync-module"),
             )
             self._indexer.update_config(config)
             container.add_layer("ubimi", self._indexer.pebble_layer(), combine=True)
