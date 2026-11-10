@@ -46,8 +46,9 @@ func ParseLayout(name string) (Layout, bool) {
 // virtual translates a canonical object name in container to the paths this
 // layout exposes. The projection is derived from the parsed object: the
 // release series names the legacy directory, both by version and by the
-// container's codename wherever the legacy tree keeps both, and the object
-// path is carried through unchanged.
+// container's codename wherever the legacy tree keeps both, and artifact names
+// are rebuilt in the historical hyphen-separated form from their parsed
+// project, subproject, version, architecture and extension.
 //
 // The images layout instead keeps the canonical tree, prefixed with the
 // object's per-series container so that the containers stay visible.
@@ -73,7 +74,7 @@ func (l Layout) virtual(container, name string) []string {
 		switch obj.Product {
 		case "ubuntu":
 			return expand(releaseDirs(series, versioned, container), func(d string) string {
-				return d + "/" + obj.Path
+				return d + "/" + releaseName(obj)
 			})
 		case "netboot":
 			// releases.ubuntu.com keys netboot by version.
@@ -89,7 +90,7 @@ func (l Layout) virtual(container, name string) []string {
 		switch obj.Product {
 		case "ubuntu-core":
 			if versioned {
-				return []string{fmt.Sprintf("ubuntu-core/%d/stable/current/%s", series.Major, obj.Path)}
+				return []string{fmt.Sprintf("ubuntu-core/%d/stable/current/%s", series.Major, coreName(obj))}
 			}
 		case "ubuntu-server", "ubuntu-wsl":
 			d := releaseDir(series, versioned, container)
@@ -100,7 +101,7 @@ func (l Layout) virtual(container, name string) []string {
 			if obj.Product == "ubuntu-server" && strings.Contains(obj.Path, "preinstalled") {
 				channel = "daily-preinstalled"
 			}
-			return []string{obj.Product + "/" + d + "/" + channel + "/current/" + obj.Path}
+			return []string{obj.Product + "/" + d + "/" + channel + "/current/" + dailyName(obj, d)}
 		case "netboot":
 			// cdimage.ubuntu.com keys netboot by codename.
 			if container != "" {
@@ -111,11 +112,68 @@ func (l Layout) virtual(container, name string) []string {
 			}
 		default:
 			return expand(releaseDirs(series, versioned, container), func(d string) string {
-				return obj.Product + "/releases/" + d + "/release/" + obj.Path
+				return obj.Product + "/releases/" + d + "/release/" + releaseName(obj)
 			})
 		}
 	}
 	return nil
+}
+
+// legacyName joins the non-empty parts into the historical hyphen-separated
+// cdimage filename and appends the artifact extension. It carries the canonical
+// path unchanged when the object is not an artifact (shared metadata, netboot
+// trees and so on).
+func legacyName(obj images.Object, parts ...string) string {
+	if obj.Project == "" {
+		return obj.Path
+	}
+	var b strings.Builder
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('-')
+		}
+		b.WriteString(part)
+	}
+	b.WriteString(obj.Extension)
+	return b.String()
+}
+
+// repeatedSubproject names the projects whose historical release filenames
+// repeat their project suffix as the subproject, such as
+// ubuntu-base-24.04.3-base-amd64.tar.gz. The canonical name does not repeat it.
+var repeatedSubproject = map[string]string{
+	"ubuntu-base":     "base",
+	"ubuntu-mini-iso": "mini-iso",
+}
+
+// releaseName reconstructs <project>-<version>[-<subproject>]-<arch><ext>, the
+// filename used by the release trees.
+func releaseName(obj images.Object) string {
+	subproject := obj.Subproject
+	if subproject == "" {
+		subproject = repeatedSubproject[obj.Product]
+	}
+	return legacyName(obj, obj.Project, obj.Version, subproject, obj.Architecture)
+}
+
+// dailyName reconstructs the daily cdimage filenames, which are keyed by the
+// series codename and put the project role last:
+// <codename>[-<subproject>]-<role>-<arch><ext>.
+func dailyName(obj images.Object, codename string) string {
+	role := obj.Project
+	if suffix, ok := strings.CutPrefix(obj.Project, "ubuntu-"); ok {
+		role = suffix
+	}
+	return legacyName(obj, codename, obj.Subproject, role, obj.Architecture)
+}
+
+// coreName reconstructs <project>[-<subproject>]-<version>-<arch><ext>, such
+// as ubuntu-core-24-amd64.img.xz.
+func coreName(obj images.Object) string {
+	return legacyName(obj, obj.Project, obj.Subproject, obj.Version, obj.Architecture)
 }
 
 // aliases returns other virtual paths that name the same object but are not

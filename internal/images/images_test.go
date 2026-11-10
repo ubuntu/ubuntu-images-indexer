@@ -106,6 +106,71 @@ func TestParseRelease(t *testing.T) {
 	}
 }
 
+func TestParseArtifact(t *testing.T) {
+	cases := []struct {
+		path string
+		want Artifact
+		ok   bool
+	}{
+		{
+			"ubuntu_desktop_24.04.3_amd64_20240418.iso",
+			Artifact{"ubuntu", "desktop", "24.04.3", "amd64", "20240418", ".iso"},
+			true,
+		},
+		{
+			"kubuntu_desktop_24.04.5_amd64_20240418.iso.zsync",
+			Artifact{"kubuntu", "desktop", "24.04.5", "amd64", "20240418", ".iso.zsync"},
+			true,
+		},
+		{
+			"ubuntu-server_live_24.04.3_arm64_20240418.iso",
+			Artifact{"ubuntu-server", "live", "24.04.3", "arm64", "20240418", ".iso"},
+			true,
+		},
+		{
+			"ubuntu-base_26.04_amd64_20260418.tar.gz",
+			Artifact{"ubuntu-base", "", "26.04", "amd64", "20260418", ".tar.gz"},
+			true,
+		},
+		{
+			"ubuntu_core_24_amd64_20240419.img.xz",
+			Artifact{"ubuntu", "core", "24", "amd64", "20240419", ".img.xz"},
+			true,
+		},
+		{
+			"xubuntu_minimal_24.04.3_amd64_20240418.iso.sha256.gpg",
+			Artifact{"xubuntu", "minimal", "24.04.3", "amd64", "20240418", ".iso.sha256.gpg"},
+			true,
+		},
+		{
+			"24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso",
+			Artifact{"ubuntu", "desktop", "24.04.3", "amd64", "20240418", ".iso"},
+			true,
+		},
+		{"", Artifact{}, false},
+		{"SHA256SUMS", Artifact{}, false},
+		{"HEADER.html", Artifact{}, false},
+		{"linux", Artifact{}, false},
+		{"amd64/linux", Artifact{}, false},
+		{"24.04/ubuntu", Artifact{}, false},
+		{"ubuntu_desktop_24.04.3_amd64.iso", Artifact{}, false},         // no build date
+		{"ubuntu_desktop_amd64_20240418.iso", Artifact{}, false},        // no version
+		{"ubuntu_desktop_24.04.3_20240418.iso", Artifact{}, false},      // no architecture
+		{"ubuntu_desktop_24.04.3_amd64_2024041.iso", Artifact{}, false}, // truncated date
+		{"ubuntu_desktop_24.04.3_AMD64_20240418.iso", Artifact{}, false},
+		{"ubuntu_desktop_24.04.3_64_20240418.iso", Artifact{}, false},
+		{"ubuntu_desktop_24.04.3_mips64el_20240418.iso", Artifact{}, false},
+		{"ubuntu_desktop_24.04.3_notanarch_20240418.iso", Artifact{}, false},
+		{"ubuntu_extra_desktop_24.04.3_amd64_20240418.iso", Artifact{}, false},
+	}
+	for _, tc := range cases {
+		got, ok := ParseArtifact(tc.path)
+		if ok != tc.ok || got != tc.want {
+			t.Errorf("ParseArtifact(%q) = %+v, %v; want %+v, %v", tc.path, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 func TestParseArchitecture(t *testing.T) {
 	good := []struct {
 		path string
@@ -118,9 +183,9 @@ func TestParseArchitecture(t *testing.T) {
 		{"ubuntu_desktop_24.04.3_ppc64el_20240418.iso.sha256.gpg", "ppc64el"},
 		{"ubuntu_desktop_24.04.3_riscv64_20240418.iso", "riscv64"},
 		{"ubuntu_desktop_24.04.3_s390x_20240418.iso", "s390x"},
-		{"ubuntu_base_24.04.3_arm64_20240418.tar.gz", "arm64"},
+		{"ubuntu-base_24.04.3_arm64_20240418.tar.gz", "arm64"},
 		{"ubuntu_core_24_amd64_20240419.img.xz", "amd64"},
-		{"ubuntu_preinstalled-server_24.04_arm64_20240418.img.xz", "arm64"},
+		{"ubuntu-server_preinstalled_24.04_arm64_20240418.img.xz", "arm64"},
 		{"kubuntu_desktop_24.04.5_amd64_20240418.iso.zsync", "amd64"},
 		{"24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", "amd64"},
 	}
@@ -155,26 +220,30 @@ func TestParseArchitecture(t *testing.T) {
 
 func TestParse(t *testing.T) {
 	cases := []struct {
-		container string
-		name      string
-		release   string
-		product   string
-		arch      string
-		path      string
-		ok        bool
+		container  string
+		name       string
+		release    string
+		product    string
+		project    string
+		subproject string
+		version    string
+		arch       string
+		path       string
+		ok         bool
 	}{
-		{"noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", "24.04.3", "ubuntu", "amd64", "ubuntu_desktop_24.04.3_amd64_20240418.iso", true},
-		{"noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_arm64_20240418.iso.sha256", "24.04.3", "ubuntu", "arm64", "ubuntu_desktop_24.04.3_arm64_20240418.iso.sha256", true},
-		{"noble", "24.04/ubuntu-wsl/ubuntu_wsl_24.04_amd64_20240418.wsl", "24.04", "ubuntu-wsl", "amd64", "ubuntu_wsl_24.04_amd64_20240418.wsl", true},
-		{"noble", "24.04/ubuntu/SHA256SUMS", "24.04", "ubuntu", "", "SHA256SUMS", true},
-		{"noble", "24.04-beta/ubuntu/ubuntu_desktop_24.04-beta_amd64_20240322.iso", "24.04-beta", "ubuntu", "amd64", "ubuntu_desktop_24.04-beta_amd64_20240322.iso", true},
-		{"resolute", "26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso", "26.04.1", "ubuntu", "amd64", "ubuntu_desktop_26.04.1_amd64_20260418.iso", true},
-		{"resolute", "26.04/ubuntu-base/ubuntu_base_26.04_arm64_20260418.tar.gz", "26.04", "ubuntu-base", "arm64", "ubuntu_base_26.04_arm64_20260418.tar.gz", true},
-		{"stonking", "26.10/ubuntu/ubuntu_desktop_26.10_amd64_20260418.iso", "26.10", "ubuntu", "amd64", "ubuntu_desktop_26.10_amd64_20260418.iso", true},
-		{"noble", "HEADER.html", "", "", "", "", false},
-		{"noble", "", "", "", "", "", false},
-		{"noble", "24.04", "", "", "", "", false},
-		{"noble", "/ubuntu/a.iso", "", "", "", "", false},
+		{"noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", "24.04.3", "ubuntu", "ubuntu", "desktop", "24.04.3", "amd64", "ubuntu_desktop_24.04.3_amd64_20240418.iso", true},
+		{"noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_arm64_20240418.iso.sha256", "24.04.3", "ubuntu", "ubuntu", "desktop", "24.04.3", "arm64", "ubuntu_desktop_24.04.3_arm64_20240418.iso.sha256", true},
+		{"noble", "24.04/ubuntu-wsl/ubuntu-wsl_24.04_amd64_20240418.wsl", "24.04", "ubuntu-wsl", "ubuntu-wsl", "", "24.04", "amd64", "ubuntu-wsl_24.04_amd64_20240418.wsl", true},
+		{"noble", "24.04/ubuntu-server/ubuntu-server_live_24.04_amd64_20240418.iso", "24.04", "ubuntu-server", "ubuntu-server", "live", "24.04", "amd64", "ubuntu-server_live_24.04_amd64_20240418.iso", true},
+		{"noble", "24.04/ubuntu/SHA256SUMS", "24.04", "ubuntu", "", "", "", "", "SHA256SUMS", true},
+		{"noble", "24.04-beta/ubuntu/ubuntu_desktop_24.04-beta_amd64_20240322.iso", "24.04-beta", "ubuntu", "ubuntu", "desktop", "24.04-beta", "amd64", "ubuntu_desktop_24.04-beta_amd64_20240322.iso", true},
+		{"resolute", "26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso", "26.04.1", "ubuntu", "ubuntu", "desktop", "26.04.1", "amd64", "ubuntu_desktop_26.04.1_amd64_20260418.iso", true},
+		{"resolute", "26.04/ubuntu-base/ubuntu-base_26.04_arm64_20260418.tar.gz", "26.04", "ubuntu-base", "ubuntu-base", "", "26.04", "arm64", "ubuntu-base_26.04_arm64_20260418.tar.gz", true},
+		{"stonking", "26.10/ubuntu/ubuntu_desktop_26.10_amd64_20260418.iso", "26.10", "ubuntu", "ubuntu", "desktop", "26.10", "amd64", "ubuntu_desktop_26.10_amd64_20260418.iso", true},
+		{"noble", "HEADER.html", "", "", "", "", "", "", "", false},
+		{"noble", "", "", "", "", "", "", "", "", false},
+		{"noble", "24.04", "", "", "", "", "", "", "", false},
+		{"noble", "/ubuntu/a.iso", "", "", "", "", "", "", "", false},
 	}
 	for _, tc := range cases {
 		got, ok := Parse(tc.container, tc.name)
@@ -185,8 +254,8 @@ func TestParse(t *testing.T) {
 		if !tc.ok {
 			continue
 		}
-		if got.Container != tc.container || got.Product != tc.product || got.Architecture != tc.arch || got.Path != tc.path || got.Release.String() != tc.release {
-			t.Errorf("Parse(%q, %q) = %+v; want container %q release %q product %q architecture %q path %q", tc.container, tc.name, got, tc.container, tc.release, tc.product, tc.arch, tc.path)
+		if got.Container != tc.container || got.Product != tc.product || got.Project != tc.project || got.Subproject != tc.subproject || got.Version != tc.version || got.Architecture != tc.arch || got.Path != tc.path || got.Release.String() != tc.release {
+			t.Errorf("Parse(%q, %q) = %+v; want container %q release %q product %q project %q subproject %q version %q architecture %q path %q", tc.container, tc.name, got, tc.container, tc.release, tc.product, tc.project, tc.subproject, tc.version, tc.arch, tc.path)
 		}
 	}
 }

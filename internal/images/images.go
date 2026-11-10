@@ -3,10 +3,11 @@
 // series codename) and names each object {release}/{product}/{path}, where
 // release is a versioned release such as 24.04.3 or a named milestone such as
 // "24.04-beta". Artifact file names are made of underscore-separated fields
-// ending in a build date ({name}_{version}_{arch}_{YYYYMMDD}.{ext}), so the
-// architecture is part of the parsed model. This package parses those names
-// into a semantic model so callers can reason about series, point releases,
-// products and architectures instead of raw strings.
+// ({project}[_{subproject}]_{version}_{arch}_{YYYYMMDD}{ext}), so the project,
+// optional subproject, architecture and build date are part of the parsed
+// model. This package parses those names into a semantic model so callers can
+// reason about series, point releases, products, artifacts and architectures
+// instead of raw strings.
 //
 // Nothing here is configured or hard-coded per series: the model only encodes
 // the grammar of Ubuntu versions and object names, and every fact about a
@@ -140,14 +141,34 @@ func (r Release) Series() (Series, bool) {
 	return r.Version.Series()
 }
 
+// Artifact is the parsed name of an artifact file. Canonical artifact names
+// are underscore-separated fields:
+//
+//	{project}[_{subproject}]_{version}_{arch}_{YYYYMMDD}{ext}
+//
+// Project names may contain hyphens. The optional subproject is empty when the
+// name has no second project field. Version keeps the spelling from the file
+// (24.04.3, 24 or 24.04-beta), and Extension keeps every suffix after the
+// build date together with its leading dots (.iso, .tar.gz, .iso.sha256.gpg).
+type Artifact struct {
+	Project      string
+	Subproject   string // optional
+	Version      string
+	Architecture string
+	Date         string
+	Extension    string
+}
+
 // Object is a canonical object name parsed into its semantic parts. The name
-// is {release}/{product}/{path} and the container is the series codename.
+// is {release}/{product}/{path} and the container is the series codename. The
+// embedded Artifact fields are zero when the path is not an artifact name, such
+// as a shared metadata file or a netboot directory.
 type Object struct {
-	Container    string
-	Release      Release
-	Product      string
-	Architecture string // artifact architecture, empty when the name carries none
-	Path         string // remainder after {release}/{product}/, possibly empty
+	Container string
+	Release   Release
+	Product   string
+	Artifact
+	Path string // remainder after {release}/{product}/, possibly empty
 }
 
 // Parse splits a canonical object name, optionally qualified by its container,
@@ -163,46 +184,100 @@ func Parse(container, name string) (Object, bool) {
 	if !ok || product == "" {
 		return Object{}, false
 	}
-	arch, _ := ParseArchitecture(path)
-	return Object{Container: container, Release: rel, Product: product, Architecture: arch, Path: path}, true
+	artifact, _ := ParseArtifact(path)
+	return Object{Container: container, Release: rel, Product: product, Artifact: artifact, Path: path}, true
 }
 
-// ParseArchitecture parses the architecture from an artifact path. Canonical
-// artifact names are underscore-separated fields ending in an eight-digit
-// build date, with the architecture immediately before it:
-//
-//	{name}_{version}_{arch}_{YYYYMMDD}.{ext}
-//
-// so names such as ubuntu_desktop_24.04.3_amd64_20240418.iso or
-// ubuntu_base_24.04.3_arm64_20240418.tar.gz consistently report amd64 and
-// arm64. It reports false for names that do not follow that shape, such as
-// shared metadata files (SHA256SUMS) or a bare directory path.
-func ParseArchitecture(path string) (string, bool) {
+// ParseArtifact parses the project, optional subproject, version, architecture,
+// build date and extension from an artifact path. It reports false for names
+// that do not follow the canonical shape, such as shared metadata files
+// (SHA256SUMS) or a bare directory path.
+func ParseArtifact(path string) (Artifact, bool) {
 	name := path
 	if i := strings.LastIndexByte(name, '/'); i >= 0 {
 		name = name[i+1:]
 	}
-	parts := strings.Split(name, "_")
-	if len(parts) < 2 {
-		return "", false
+	fields := strings.Split(name, "_")
+	if len(fields) < 4 {
+		return Artifact{}, false
 	}
-	date := parts[len(parts)-1]
-	if i := strings.IndexByte(date, '.'); i >= 0 {
-		date = date[:i]
-	}
+
+	dateExt := fields[len(fields)-1]
+	date, ext, _ := strings.Cut(dateExt, ".")
 	if len(date) != 8 || !allDigits(date) {
-		return "", false
+		return Artifact{}, false
 	}
-	arch := parts[len(parts)-2]
+	if ext != "" {
+		ext = "." + ext
+	}
+
+	arch := fields[len(fields)-2]
 	if !validArchitecture(arch) {
+		return Artifact{}, false
+	}
+	version := fields[len(fields)-3]
+	if !validArtifactVersion(version) {
+		return Artifact{}, false
+	}
+
+	prefix := fields[:len(fields)-3]
+	if len(prefix) < 1 || len(prefix) > 2 || prefix[0] == "" {
+		return Artifact{}, false
+	}
+	subproject := ""
+	if len(prefix) == 2 {
+		subproject = prefix[1]
+		if subproject == "" {
+			return Artifact{}, false
+		}
+	}
+
+	return Artifact{
+		Project:      prefix[0],
+		Subproject:   subproject,
+		Version:      version,
+		Architecture: arch,
+		Date:         date,
+		Extension:    ext,
+	}, true
+}
+
+// ParseArchitecture parses the architecture from an artifact path, reporting
+// false for names that are not artifacts or do not carry a known architecture.
+func ParseArchitecture(path string) (string, bool) {
+	artifact, ok := ParseArtifact(path)
+	if !ok {
 		return "", false
 	}
-	return arch, true
+	return artifact.Architecture, true
 }
 
 func allDigits(s string) bool {
 	for i := 0; i < len(s); i++ {
 		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// validArtifactVersion accepts the version field as written in an artifact
+// name: a dotted numeric version, optionally followed by a milestone suffix
+// such as 24.04-beta.
+func validArtifactVersion(s string) bool {
+	base, milestone, hasMilestone := strings.Cut(s, "-")
+	if _, ok := ParseVersion(base); !ok {
+		return false
+	}
+	if !hasMilestone {
+		return true
+	}
+	if milestone == "" {
+		return false
+	}
+	for i := 0; i < len(milestone); i++ {
+		c := milestone[i]
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
 			return false
 		}
 	}

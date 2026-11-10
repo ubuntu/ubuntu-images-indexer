@@ -163,7 +163,7 @@ func TestLegacyHostLayout(t *testing.T) {
 	s := newServer(t, st, layouts)
 
 	// A legacy path is translated to the canonical object.
-	req := httptest.NewRequest(http.MethodGet, "/ubuntu/releases/24.04/release/ubuntu_desktop_24.04.3_amd64_20240418.iso", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ubuntu/releases/24.04/release/ubuntu-24.04.3-desktop-amd64.iso", nil)
 	req.Host = "cdimage.ubuntu.com"
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, req)

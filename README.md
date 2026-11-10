@@ -68,12 +68,14 @@ rsync listener exposes that tree through one module per legacy layout:
 
 The legacy layouts are projections of the parsed canonical tree rather than
 string rewrites: the release series names the directory (its version, and the
-container's codename wherever the legacy tree keeps both) and the object path is
-carried through. The semantic model (`internal/images`) discovers series,
-codenames, products, point releases and artifact architectures from the tree
-itself — computed once per index snapshot and shared by every layout — and
-`internal/vfs` projects it onto each layout through a single `fs.FS` engine, so
-nothing about a particular series is configured or hard-coded.
+container's codename wherever the legacy tree keeps both), while artifact names
+are rebuilt in the historical hyphen-separated form from their parsed project,
+optional subproject, version, architecture and extension. The semantic model
+(`internal/images`) discovers series, codenames, products, point releases and
+artifact fields from the tree itself — computed once per index snapshot and
+shared by every layout — and `internal/vfs` projects it onto each layout through
+a single `fs.FS` engine, so nothing about a particular series is configured or
+hard-coded.
 
 ```sh
 # in config.toml
