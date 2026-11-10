@@ -113,7 +113,11 @@ func TestParseArchitecture(t *testing.T) {
 	}{
 		{"ubuntu_desktop_24.04.3_amd64_20240418.iso", "amd64"},
 		{"ubuntu_desktop_24.04.3_arm64_20240418.iso.sha256", "arm64"},
+		{"ubuntu_desktop_24.04.3_armhf_20240418.iso", "armhf"},
+		{"ubuntu_desktop_24.04.3_i386_20240418.iso", "i386"},
 		{"ubuntu_desktop_24.04.3_ppc64el_20240418.iso.sha256.gpg", "ppc64el"},
+		{"ubuntu_desktop_24.04.3_riscv64_20240418.iso", "riscv64"},
+		{"ubuntu_desktop_24.04.3_s390x_20240418.iso", "s390x"},
 		{"ubuntu_base_24.04.3_arm64_20240418.tar.gz", "arm64"},
 		{"ubuntu_core_24_amd64_20240419.img.xz", "amd64"},
 		{"ubuntu_preinstalled-server_24.04_arm64_20240418.img.xz", "arm64"},
@@ -139,6 +143,8 @@ func TestParseArchitecture(t *testing.T) {
 		"ubuntu_desktop_24.04.3_amd64_2024041.iso", // truncated date
 		"ubuntu_desktop_24.04.3_AMD64_20240418.iso",
 		"ubuntu_desktop_24.04.3_64_20240418.iso",
+		"ubuntu_desktop_24.04.3_mips64el_20240418.iso",
+		"ubuntu_desktop_24.04.3_notanarch_20240418.iso",
 	}
 	for _, path := range bad {
 		if got, ok := ParseArchitecture(path); ok {

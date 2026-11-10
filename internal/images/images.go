@@ -209,26 +209,16 @@ func allDigits(s string) bool {
 	return true
 }
 
-// validArchitecture accepts the lowercase alphanumeric tokens Ubuntu uses for
-// architectures (amd64, arm64, ppc64el, riscv64, s390x, ...) without keeping a
-// closed list of them. Requiring a letter rejects purely numeric tokens, which
-// are versions rather than architectures.
+// validArchitecture reports whether s is one of the architecture identifiers
+// Ubuntu builds and publishes images for. i386 is included because older
+// releases still carry 32-bit images, even though it is now only a partial
+// port.
 func validArchitecture(s string) bool {
-	if s == "" {
-		return false
+	switch s {
+	case "amd64", "arm64", "armhf", "i386", "ppc64el", "riscv64", "s390x":
+		return true
 	}
-	letter := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case c >= 'a' && c <= 'z':
-			letter = true
-		case c >= '0' && c <= '9':
-		default:
-			return false
-		}
-	}
-	return letter
+	return false
 }
 
 // Series returns the object's series, reporting false for an object whose
