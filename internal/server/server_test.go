@@ -117,18 +117,18 @@ func TestSubdirListing(t *testing.T) {
 func TestLatestRedirect(t *testing.T) {
 	st := fakeStorage{objects: map[string][]storage.Object{
 		"noble": {
-			{Name: "24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso", Size: 10},
-			{Name: "24.04.5/ubuntu/SHA256SUMS", Size: 10},
+			{Name: "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", Size: 10},
+			{Name: "24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso.sha256", Size: 10},
 		},
 	}}
 	s := newServer(t, st, nil)
 
 	rec := httptest.NewRecorder()
-	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/noble/latest/ubuntu/SHA256SUMS", nil))
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/noble/latest/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso.sha256", nil))
 	if rec.Code != http.StatusFound {
 		t.Fatalf("file status = %d, want 302", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://store/noble/24.04.5/ubuntu/SHA256SUMS" {
+	if loc := rec.Header().Get("Location"); loc != "https://store/noble/24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso.sha256" {
 		t.Errorf("file Location = %q", loc)
 	}
 
@@ -157,20 +157,20 @@ func TestNotFound(t *testing.T) {
 // the legacy tree and that object requests redirect to the canonical object.
 func TestLegacyHostLayout(t *testing.T) {
 	st := fakeStorage{objects: map[string][]storage.Object{
-		"noble": {{Name: "24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso", Size: 10}},
+		"noble": {{Name: "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", Size: 10}},
 	}}
 	layouts := map[string]vfs.Layout{"cdimage.ubuntu.com": vfs.LayoutCDImage}
 	s := newServer(t, st, layouts)
 
 	// A legacy path is translated to the canonical object.
-	req := httptest.NewRequest(http.MethodGet, "/ubuntu/releases/24.04/release/ubuntu-24.04.3-desktop-amd64.iso", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ubuntu/releases/24.04/release/ubuntu_desktop_24.04.3_amd64_20240418.iso", nil)
 	req.Host = "cdimage.ubuntu.com"
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, req)
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://store/noble/24.04/ubuntu/ubuntu-24.04.3-desktop-amd64.iso" {
+	if loc := rec.Header().Get("Location"); loc != "https://store/noble/24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso" {
 		t.Errorf("Location = %q", loc)
 	}
 

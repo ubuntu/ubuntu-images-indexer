@@ -9,17 +9,18 @@ import (
 // sample is a slice of the canonical tree as seeded by scripts/seed-swift.sh:
 // per-series containers whose objects are named {release}/{product}/{path}.
 var sample = []string{
-	"noble 24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso",
-	"noble 24.04.3/ubuntu/SHA256SUMS",
-	"noble 24.04.5/kubuntu/kubuntu-24.04.5-desktop-amd64.iso",
-	"noble 24.04/ubuntu-server/noble-live-server-amd64.iso",
-	"noble 24.04/ubuntu-core/ubuntu-core-24-amd64.img.xz",
-	"noble 24.04/ubuntu-wsl/noble-wsl-amd64.wsl",
-	"noble beta/ubuntu/ubuntu-beta-desktop-amd64.iso",
-	"resolute 26.04.1/ubuntu/ubuntu-26.04.1-desktop-amd64.iso",
-	"resolute 26.04/ubuntu-base/ubuntu-base-26.04-base-amd64.tar.gz",
-	"resolute 26.04/ubuntu-server/ubuntu-26.04-live-server-amd64.iso",
-	"resolute 26.10/ubuntu/ubuntu-26.10-desktop-amd64.iso",
+	"noble 24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso",
+	"noble 24.04.3/ubuntu/ubuntu_desktop_24.04.3_arm64_20240418.iso",
+	"noble 24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso.sha256",
+	"noble 24.04.5/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso",
+	"noble 24.04/ubuntu-server/ubuntu_live-server_24.04_amd64_20240418.iso",
+	"noble 24.04/ubuntu-core/ubuntu_core_24_amd64_20240419.img.xz",
+	"noble 24.04/ubuntu-wsl/ubuntu_wsl_24.04_amd64_20240418.wsl",
+	"noble 24.04-beta/ubuntu/ubuntu_desktop_24.04-beta_amd64_20240322.iso",
+	"resolute 26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso",
+	"resolute 26.04/ubuntu-base/ubuntu_base_26.04_amd64_20260418.tar.gz",
+	"resolute 26.04/ubuntu-server/ubuntu_live-server_26.04_amd64_20260418.iso",
+	"resolute 26.10/ubuntu/ubuntu_desktop_26.10_amd64_20260418.iso",
 }
 
 func newSampleCatalog(t *testing.T) *Catalog {
@@ -124,7 +125,7 @@ func TestCatalogLatest(t *testing.T) {
 // TestNewCatalogNoVersionedSeries checks that a tree made only of milestone
 // releases has no series and no latest.
 func TestNewCatalogNoVersionedSeries(t *testing.T) {
-	o, _ := Parse("noble", "beta/ubuntu/ubuntu-beta-desktop-amd64.iso")
+	o, _ := Parse("noble", "24.04-beta/ubuntu/ubuntu_desktop_24.04-beta_amd64_20240322.iso")
 	c := NewCatalog([]Object{o})
 	if len(c.Series()) != 0 {
 		t.Errorf("Series() = %v; want none", c.Series())

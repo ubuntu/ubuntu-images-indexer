@@ -18,16 +18,16 @@ func TestLayoutVirtual(t *testing.T) {
 		canonical string
 		want      []string
 	}{
-		{LayoutImages, "24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso", []string{"noble/24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"}},
-		{LayoutReleases, "24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso", []string{"24.04/ubuntu-24.04.3-desktop-amd64.iso", "noble/ubuntu-24.04.3-desktop-amd64.iso"}},
+		{LayoutImages, "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", []string{"noble/24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso"}},
+		{LayoutReleases, "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", []string{"24.04/ubuntu_desktop_24.04.3_amd64_20240418.iso", "noble/ubuntu_desktop_24.04.3_amd64_20240418.iso"}},
 		{LayoutReleases, "24.04/netboot/amd64/linux", []string{"24.04/netboot/amd64/linux"}},
 		{LayoutReleases, "24.04/kubuntu/a.iso", nil},
-		{LayoutCDImage, "24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso", []string{"ubuntu/releases/24.04/release/ubuntu-24.04.3-desktop-amd64.iso", "ubuntu/releases/noble/release/ubuntu-24.04.3-desktop-amd64.iso"}},
-		{LayoutCDImage, "24.04.3/ubuntu-base/ubuntu-base-24.04.3-base-amd64.tar.gz", []string{"ubuntu-base/releases/24.04/release/ubuntu-base-24.04.3-base-amd64.tar.gz", "ubuntu-base/releases/noble/release/ubuntu-base-24.04.3-base-amd64.tar.gz"}},
-		{LayoutCDImage, "24.04/ubuntu-server/noble-live-server-amd64.iso", []string{"ubuntu-server/noble/daily-live/current/noble-live-server-amd64.iso"}},
-		{LayoutCDImage, "24.04/ubuntu-server/noble-preinstalled-server-arm64.img.xz", []string{"ubuntu-server/noble/daily-preinstalled/current/noble-preinstalled-server-arm64.img.xz"}},
-		{LayoutCDImage, "24.04/ubuntu-wsl/noble-wsl-amd64.wsl", []string{"ubuntu-wsl/noble/daily-live/current/noble-wsl-amd64.wsl"}},
-		{LayoutCDImage, "24.04/ubuntu-core/ubuntu-core-24-amd64.img.xz", []string{"ubuntu-core/24/stable/current/ubuntu-core-24-amd64.img.xz"}},
+		{LayoutCDImage, "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", []string{"ubuntu/releases/24.04/release/ubuntu_desktop_24.04.3_amd64_20240418.iso", "ubuntu/releases/noble/release/ubuntu_desktop_24.04.3_amd64_20240418.iso"}},
+		{LayoutCDImage, "24.04.3/ubuntu-base/ubuntu_base_24.04.3_amd64_20240418.tar.gz", []string{"ubuntu-base/releases/24.04/release/ubuntu_base_24.04.3_amd64_20240418.tar.gz", "ubuntu-base/releases/noble/release/ubuntu_base_24.04.3_amd64_20240418.tar.gz"}},
+		{LayoutCDImage, "24.04/ubuntu-server/ubuntu_live-server_24.04_amd64_20240418.iso", []string{"ubuntu-server/noble/daily-live/current/ubuntu_live-server_24.04_amd64_20240418.iso"}},
+		{LayoutCDImage, "24.04/ubuntu-server/ubuntu_preinstalled-server_24.04_arm64_20240418.img.xz", []string{"ubuntu-server/noble/daily-preinstalled/current/ubuntu_preinstalled-server_24.04_arm64_20240418.img.xz"}},
+		{LayoutCDImage, "24.04/ubuntu-wsl/ubuntu_wsl_24.04_amd64_20240418.wsl", []string{"ubuntu-wsl/noble/daily-live/current/ubuntu_wsl_24.04_amd64_20240418.wsl"}},
+		{LayoutCDImage, "24.04/ubuntu-core/ubuntu_core_24_amd64_20240419.img.xz", []string{"ubuntu-core/24/stable/current/ubuntu_core_24_amd64_20240419.img.xz"}},
 		{LayoutCDImage, "24.04/netboot/amd64/linux", []string{"netboot/noble/amd64/linux"}},
 	}
 	for _, tc := range cases {
@@ -46,10 +46,10 @@ func TestLayoutAliases(t *testing.T) {
 		virtual string
 		want    []string
 	}{
-		{LayoutCDImage, "ubuntu-core/24/stable/20261015.1/ubuntu-core-24-amd64.img.xz", []string{"ubuntu-core/24/stable/current/ubuntu-core-24-amd64.img.xz"}},
-		{LayoutCDImage, "ubuntu-server/noble/daily-live/20260908/noble-live-server-amd64.iso", []string{"ubuntu-server/noble/daily-live/current/noble-live-server-amd64.iso"}},
-		{LayoutCDImage, "ubuntu-server/noble/daily-live/current/noble-live-server-amd64.iso", nil},
-		{LayoutReleases, "24.04/ubuntu-24.04.3-desktop-amd64.iso", nil},
+		{LayoutCDImage, "ubuntu-core/24/stable/20261015.1/ubuntu_core_24_amd64_20240419.img.xz", []string{"ubuntu-core/24/stable/current/ubuntu_core_24_amd64_20240419.img.xz"}},
+		{LayoutCDImage, "ubuntu-server/noble/daily-live/20260908/ubuntu_live-server_24.04_amd64_20240418.iso", []string{"ubuntu-server/noble/daily-live/current/ubuntu_live-server_24.04_amd64_20240418.iso"}},
+		{LayoutCDImage, "ubuntu-server/noble/daily-live/current/ubuntu_live-server_24.04_amd64_20240418.iso", nil},
+		{LayoutReleases, "24.04/ubuntu_desktop_24.04.3_amd64_20240418.iso", nil},
 	}
 	for _, tc := range cases {
 		got := tc.layout.aliases(tc.virtual)
@@ -66,17 +66,17 @@ func newLayoutView(t *testing.T, layout Layout) *View {
 	// {release}/{product}/{path}.
 	content := map[string]map[string]string{
 		"noble": {
-			"24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso":           "desktop",
-			"24.04.5/ubuntu/ubuntu-24.04.5-desktop-amd64.iso":           "noble-desktop",
-			"24.04.3/ubuntu/SHA256SUMS":                                 "sums",
-			"24.04/ubuntu-server/noble-live-server-amd64.iso":           "server",
-			"24.04/ubuntu-core/ubuntu-core-24-amd64.img.xz":             "core",
-			"24.04/netboot/amd64/linux":                                 "kernel",
-			"24.04.3/ubuntu-base/ubuntu-base-24.04.3-base-amd64.tar.gz": "base",
-			"24.04/kubuntu/kubuntu-24.04.5-desktop-amd64.iso":           "kubuntu",
+			"24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso":        "desktop",
+			"24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso":        "noble-desktop",
+			"24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso.sha256": "sums",
+			"24.04/ubuntu-server/ubuntu_live-server_24.04_amd64_20240418.iso": "server",
+			"24.04/ubuntu-core/ubuntu_core_24_amd64_20240419.img.xz":          "core",
+			"24.04/netboot/amd64/linux":                                       "kernel",
+			"24.04.3/ubuntu-base/ubuntu_base_24.04.3_amd64_20240418.tar.gz":   "base",
+			"24.04/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso":        "kubuntu",
 		},
 		"resolute": {
-			"26.04.1/ubuntu/ubuntu-26.04.1-desktop-amd64.iso": "resolute-desktop",
+			"26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso": "resolute-desktop",
 		},
 	}
 	objects := map[string][]storage.Object{}
@@ -102,9 +102,9 @@ func TestViewResolve(t *testing.T) {
 		container string
 		object    string
 	}{
-		{LayoutImages, "noble/24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso", "noble", "24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
-		{LayoutReleases, "24.04/ubuntu-24.04.3-desktop-amd64.iso", "noble", "24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
-		{LayoutCDImage, "ubuntu/releases/24.04/release/ubuntu-24.04.3-desktop-amd64.iso", "noble", "24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
+		{LayoutImages, "noble/24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", "noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso"},
+		{LayoutReleases, "24.04/ubuntu_desktop_24.04.3_amd64_20240418.iso", "noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso"},
+		{LayoutCDImage, "ubuntu/releases/24.04/release/ubuntu_desktop_24.04.3_amd64_20240418.iso", "noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso"},
 	}
 	for _, tc := range cases {
 		v := newLayoutView(t, tc.layout)
@@ -132,18 +132,18 @@ func TestViewCDImageTree(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	for _, want := range []string{"SHA256SUMS", "ubuntu-24.04.3-desktop-amd64.iso", "ubuntu-24.04.5-desktop-amd64.iso"} {
+	for _, want := range []string{"ubuntu_desktop_24.04.3_amd64_20240418.iso.sha256", "ubuntu_desktop_24.04.3_amd64_20240418.iso", "ubuntu_desktop_24.04.5_amd64_20240418.iso"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("release entries = %v, missing %q", names, want)
 		}
 	}
-	if got := readFile(t, v, "ubuntu/releases/24.04/release/ubuntu-24.04.3-desktop-amd64.iso"); got != "desktop" {
+	if got := readFile(t, v, "ubuntu/releases/24.04/release/ubuntu_desktop_24.04.3_amd64_20240418.iso"); got != "desktop" {
 		t.Errorf("content = %q", got)
 	}
-	if got := readFile(t, v, "ubuntu-server/noble/daily-live/current/noble-live-server-amd64.iso"); got != "server" {
+	if got := readFile(t, v, "ubuntu-server/noble/daily-live/current/ubuntu_live-server_24.04_amd64_20240418.iso"); got != "server" {
 		t.Errorf("daily content = %q", got)
 	}
-	if got := readFile(t, v, "ubuntu-core/24/stable/20261015.1/ubuntu-core-24-amd64.img.xz"); got != "core" {
+	if got := readFile(t, v, "ubuntu-core/24/stable/20261015.1/ubuntu_core_24_amd64_20240419.img.xz"); got != "core" {
 		t.Errorf("dated core content = %q", got)
 	}
 	if got := readFile(t, v, "netboot/noble/amd64/linux"); got != "kernel" {
@@ -153,10 +153,10 @@ func TestViewCDImageTree(t *testing.T) {
 
 func TestViewReleasesTree(t *testing.T) {
 	v := newLayoutView(t, LayoutReleases)
-	if got := readFile(t, v, "24.04/ubuntu-24.04.3-desktop-amd64.iso"); got != "desktop" {
+	if got := readFile(t, v, "24.04/ubuntu_desktop_24.04.3_amd64_20240418.iso"); got != "desktop" {
 		t.Errorf("content = %q", got)
 	}
-	if got := readFile(t, v, "noble/ubuntu-24.04.5-desktop-amd64.iso"); got != "noble-desktop" {
+	if got := readFile(t, v, "noble/ubuntu_desktop_24.04.5_amd64_20240418.iso"); got != "noble-desktop" {
 		t.Errorf("noble content = %q", got)
 	}
 	if got := readFile(t, v, "24.04/netboot/amd64/linux"); got != "kernel" {
@@ -170,12 +170,12 @@ func TestViewReleasesTree(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	for _, want := range []string{"netboot", "ubuntu-24.04.3-desktop-amd64.iso"} {
+	for _, want := range []string{"netboot", "ubuntu_desktop_24.04.3_amd64_20240418.iso"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("24.04 entries = %v, missing %q", names, want)
 		}
 	}
-	for _, unwanted := range []string{"kubuntu-24.04.5-desktop-amd64.iso"} {
+	for _, unwanted := range []string{"kubuntu_desktop_24.04.5_amd64_20240418.iso"} {
 		if slices.Contains(names, unwanted) {
 			t.Errorf("24.04 entries = %v, unexpectedly contains %q", names, unwanted)
 		}
@@ -186,13 +186,13 @@ func TestViewImagesTree(t *testing.T) {
 	v := newLayoutView(t, LayoutImages)
 	// The images layout keeps the canonical tree but prefixes each path with
 	// the object's (per-series) container.
-	if got := readFile(t, v, "noble/24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"); got != "desktop" {
+	if got := readFile(t, v, "noble/24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso"); got != "desktop" {
 		t.Errorf("content = %q", got)
 	}
-	if got := readFile(t, v, "noble/24.04/kubuntu/kubuntu-24.04.5-desktop-amd64.iso"); got != "kubuntu" {
+	if got := readFile(t, v, "noble/24.04/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso"); got != "kubuntu" {
 		t.Errorf("kubuntu content = %q", got)
 	}
-	if got := readFile(t, v, "resolute/26.04.1/ubuntu/ubuntu-26.04.1-desktop-amd64.iso"); got != "resolute-desktop" {
+	if got := readFile(t, v, "resolute/26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso"); got != "resolute-desktop" {
 		t.Errorf("resolute content = %q", got)
 	}
 }
@@ -203,16 +203,16 @@ func TestViewLatest(t *testing.T) {
 	st := fakeStorage{
 		objects: map[string][]storage.Object{
 			"noble": {
-				{Name: "24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso"},
-				{Name: "24.04.5/ubuntu/ubuntu-24.04.5-desktop-amd64.iso"},
-				{Name: "24.04.5/ubuntu/SHA256SUMS"},
-				{Name: "24.04/ubuntu-server/noble-live-server-amd64.iso"},
+				{Name: "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso"},
+				{Name: "24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso"},
+				{Name: "24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso.sha256"},
+				{Name: "24.04/ubuntu-server/ubuntu_live-server_24.04_amd64_20240418.iso"},
 			},
 			"resolute": {
-				{Name: "26.04.1/ubuntu/ubuntu-26.04.1-desktop-amd64.iso"},
+				{Name: "26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso"},
 			},
 		},
-		content: map[string]string{"noble/24.04.5/ubuntu/SHA256SUMS": "sums"},
+		content: map[string]string{"noble/24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso.sha256": "sums"},
 	}
 	idx := index.New()
 	if err := idx.Refresh(context.Background(), st); err != nil {
@@ -227,7 +227,8 @@ func TestViewLatest(t *testing.T) {
 		ok      bool
 	}{
 		{"noble/latest/ubuntu", "noble/24.04.5/ubuntu", true},
-		{"noble/latest/ubuntu/ubuntu-24.04.5-desktop-amd64.iso", "noble/24.04.5/ubuntu/ubuntu-24.04.5-desktop-amd64.iso", true},
+		{"noble/latest/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso", "noble/24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso", true},
+		{"noble/latest/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso.sha256", "noble/24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso.sha256", true},
 		{"noble/latest/ubuntu-server", "noble/24.04/ubuntu-server", true},
 		{"resolute/latest/ubuntu", "resolute/26.04.1/ubuntu", true},
 		{"noble/latest/nope", "", false},
@@ -289,13 +290,13 @@ func TestViewRootListing(t *testing.T) {
 func TestViewAggregatesContainers(t *testing.T) {
 	st := fakeStorage{
 		objects: map[string][]storage.Object{
-			"focal":    {{Name: "20.04/ubuntu/focal.iso", Size: 5}},
-			"noble":    {{Name: "24.04/ubuntu/noble.iso", Size: 5}},
+			"focal":    {{Name: "20.04.6/ubuntu/ubuntu_desktop_20.04.6_amd64_20200418.iso", Size: 5}},
+			"noble":    {{Name: "24.04/ubuntu/ubuntu_live-server_24.04_amd64_20240418.iso", Size: 5}},
 			"releases": {{Name: "HEADER.html", Size: 9}},
 		},
 		content: map[string]string{
-			"focal/20.04/ubuntu/focal.iso": "focal",
-			"noble/24.04/ubuntu/noble.iso": "noble",
+			"focal/20.04.6/ubuntu/ubuntu_desktop_20.04.6_amd64_20200418.iso": "focal",
+			"noble/24.04/ubuntu/ubuntu_live-server_24.04_amd64_20240418.iso": "noble",
 		},
 	}
 	idx := index.New()
@@ -318,10 +319,10 @@ func TestViewAggregatesContainers(t *testing.T) {
 	}
 
 	// Content must be streamed from the object's own container.
-	if c := readFile(t, v, "24.04/noble.iso"); c != "noble" {
+	if c := readFile(t, v, "24.04/ubuntu_live-server_24.04_amd64_20240418.iso"); c != "noble" {
 		t.Errorf("noble content = %q", c)
 	}
-	if c := readFile(t, v, "20.04/focal.iso"); c != "focal" {
+	if c := readFile(t, v, "20.04/ubuntu_desktop_20.04.6_amd64_20200418.iso"); c != "focal" {
 		t.Errorf("focal content = %q", c)
 	}
 
@@ -343,10 +344,10 @@ func TestViewAggregatesContainers(t *testing.T) {
 	if want := "focal,noble"; strings.Join(got, ",") != want {
 		t.Fatalf("images root entries = %v, want %v", got, want)
 	}
-	if c := readFile(t, vi, "noble/24.04/ubuntu/noble.iso"); c != "noble" {
+	if c := readFile(t, vi, "noble/24.04/ubuntu/ubuntu_live-server_24.04_amd64_20240418.iso"); c != "noble" {
 		t.Errorf("images noble content = %q", c)
 	}
-	if c := readFile(t, vi, "focal/20.04/ubuntu/focal.iso"); c != "focal" {
+	if c := readFile(t, vi, "focal/20.04.6/ubuntu/ubuntu_desktop_20.04.6_amd64_20200418.iso"); c != "focal" {
 		t.Errorf("images focal content = %q", c)
 	}
 }

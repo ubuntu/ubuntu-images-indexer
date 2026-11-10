@@ -2,8 +2,11 @@
 // store. The tree is spread across one container per series (named after the
 // series codename) and names each object {release}/{product}/{path}, where
 // release is a versioned release such as 24.04.3 or a named milestone such as
-// "beta". This package parses those names into a semantic model so callers can
-// reason about series, point releases and products instead of raw strings.
+// "24.04-beta". Artifact file names are made of underscore-separated fields
+// ending in a build date ({name}_{version}_{arch}_{YYYYMMDD}.{ext}), so the
+// architecture is part of the parsed model. This package parses those names
+// into a semantic model so callers can reason about series, point releases,
+// products and architectures instead of raw strings.
 //
 // Nothing here is configured or hard-coded per series: the model only encodes
 // the grammar of Ubuntu versions and object names, and every fact about a
@@ -140,10 +143,11 @@ func (r Release) Series() (Series, bool) {
 // Object is a canonical object name parsed into its semantic parts. The name
 // is {release}/{product}/{path} and the container is the series codename.
 type Object struct {
-	Container string
-	Release   Release
-	Product   string
-	Path      string // remainder after {release}/{product}/, possibly empty
+	Container    string
+	Release      Release
+	Product      string
+	Architecture string // artifact architecture, empty when the name carries none
+	Path         string // remainder after {release}/{product}/, possibly empty
 }
 
 // Parse splits a canonical object name, optionally qualified by its container,
@@ -159,7 +163,72 @@ func Parse(container, name string) (Object, bool) {
 	if !ok || product == "" {
 		return Object{}, false
 	}
-	return Object{Container: container, Release: rel, Product: product, Path: path}, true
+	arch, _ := ParseArchitecture(path)
+	return Object{Container: container, Release: rel, Product: product, Architecture: arch, Path: path}, true
+}
+
+// ParseArchitecture parses the architecture from an artifact path. Canonical
+// artifact names are underscore-separated fields ending in an eight-digit
+// build date, with the architecture immediately before it:
+//
+//	{name}_{version}_{arch}_{YYYYMMDD}.{ext}
+//
+// so names such as ubuntu_desktop_24.04.3_amd64_20240418.iso or
+// ubuntu_base_24.04.3_arm64_20240418.tar.gz consistently report amd64 and
+// arm64. It reports false for names that do not follow that shape, such as
+// shared metadata files (SHA256SUMS) or a bare directory path.
+func ParseArchitecture(path string) (string, bool) {
+	name := path
+	if i := strings.LastIndexByte(name, '/'); i >= 0 {
+		name = name[i+1:]
+	}
+	parts := strings.Split(name, "_")
+	if len(parts) < 2 {
+		return "", false
+	}
+	date := parts[len(parts)-1]
+	if i := strings.IndexByte(date, '.'); i >= 0 {
+		date = date[:i]
+	}
+	if len(date) != 8 || !allDigits(date) {
+		return "", false
+	}
+	arch := parts[len(parts)-2]
+	if !validArchitecture(arch) {
+		return "", false
+	}
+	return arch, true
+}
+
+func allDigits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// validArchitecture accepts the lowercase alphanumeric tokens Ubuntu uses for
+// architectures (amd64, arm64, ppc64el, riscv64, s390x, ...) without keeping a
+// closed list of them. Requiring a letter rejects purely numeric tokens, which
+// are versions rather than architectures.
+func validArchitecture(s string) bool {
+	if s == "" {
+		return false
+	}
+	letter := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z':
+			letter = true
+		case c >= '0' && c <= '9':
+		default:
+			return false
+		}
+	}
+	return letter
 }
 
 // Series returns the object's series, reporting false for an object whose

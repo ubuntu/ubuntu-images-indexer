@@ -106,25 +106,69 @@ func TestParseRelease(t *testing.T) {
 	}
 }
 
+func TestParseArchitecture(t *testing.T) {
+	good := []struct {
+		path string
+		want string
+	}{
+		{"ubuntu_desktop_24.04.3_amd64_20240418.iso", "amd64"},
+		{"ubuntu_desktop_24.04.3_arm64_20240418.iso.sha256", "arm64"},
+		{"ubuntu_desktop_24.04.3_ppc64el_20240418.iso.sha256.gpg", "ppc64el"},
+		{"ubuntu_base_24.04.3_arm64_20240418.tar.gz", "arm64"},
+		{"ubuntu_core_24_amd64_20240419.img.xz", "amd64"},
+		{"ubuntu_preinstalled-server_24.04_arm64_20240418.img.xz", "arm64"},
+		{"kubuntu_desktop_24.04.5_amd64_20240418.iso.zsync", "amd64"},
+		{"24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", "amd64"},
+	}
+	for _, tc := range good {
+		got, ok := ParseArchitecture(tc.path)
+		if !ok || got != tc.want {
+			t.Errorf("ParseArchitecture(%q) = %q, %v; want %q, true", tc.path, got, ok, tc.want)
+		}
+	}
+
+	bad := []string{
+		"",
+		"SHA256SUMS",
+		"HEADER.html",
+		"linux",
+		"amd64/linux",
+		"24.04/ubuntu",
+		"ubuntu_desktop_24.04.3_amd64.iso",    // no build date
+		"ubuntu_desktop_24.04.3_20240418.iso", // no architecture
+		"ubuntu_desktop_24.04.3_amd64_2024041.iso", // truncated date
+		"ubuntu_desktop_24.04.3_AMD64_20240418.iso",
+		"ubuntu_desktop_24.04.3_64_20240418.iso",
+	}
+	for _, path := range bad {
+		if got, ok := ParseArchitecture(path); ok {
+			t.Errorf("ParseArchitecture(%q) = %q, true; want false", path, got)
+		}
+	}
+}
+
 func TestParse(t *testing.T) {
 	cases := []struct {
 		container string
 		name      string
 		release   string
 		product   string
+		arch      string
 		path      string
 		ok        bool
 	}{
-		{"noble", "24.04.3/ubuntu/ubuntu-24.04.3-desktop-amd64.iso", "24.04.3", "ubuntu", "ubuntu-24.04.3-desktop-amd64.iso", true},
-		{"noble", "24.04/ubuntu-wsl/noble-wsl-amd64.wsl", "24.04", "ubuntu-wsl", "noble-wsl-amd64.wsl", true},
-		{"noble", "24.04/ubuntu/SHA256SUMS", "24.04", "ubuntu", "SHA256SUMS", true},
-		{"noble", "beta/ubuntu/ubuntu-beta-desktop-amd64.iso", "beta", "ubuntu", "ubuntu-beta-desktop-amd64.iso", true},
-		{"resolute", "26.04.1/ubuntu/ubuntu-26.04.1-desktop-amd64.iso", "26.04.1", "ubuntu", "ubuntu-26.04.1-desktop-amd64.iso", true},
-		{"resolute", "26.10/ubuntu/ubuntu-26.10-desktop-amd64.iso", "26.10", "ubuntu", "ubuntu-26.10-desktop-amd64.iso", true},
-		{"noble", "HEADER.html", "", "", "", false},
-		{"noble", "", "", "", "", false},
-		{"noble", "24.04", "", "", "", false},
-		{"noble", "/ubuntu/a.iso", "", "", "", false},
+		{"noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", "24.04.3", "ubuntu", "amd64", "ubuntu_desktop_24.04.3_amd64_20240418.iso", true},
+		{"noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_arm64_20240418.iso.sha256", "24.04.3", "ubuntu", "arm64", "ubuntu_desktop_24.04.3_arm64_20240418.iso.sha256", true},
+		{"noble", "24.04/ubuntu-wsl/ubuntu_wsl_24.04_amd64_20240418.wsl", "24.04", "ubuntu-wsl", "amd64", "ubuntu_wsl_24.04_amd64_20240418.wsl", true},
+		{"noble", "24.04/ubuntu/SHA256SUMS", "24.04", "ubuntu", "", "SHA256SUMS", true},
+		{"noble", "24.04-beta/ubuntu/ubuntu_desktop_24.04-beta_amd64_20240322.iso", "24.04-beta", "ubuntu", "amd64", "ubuntu_desktop_24.04-beta_amd64_20240322.iso", true},
+		{"resolute", "26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso", "26.04.1", "ubuntu", "amd64", "ubuntu_desktop_26.04.1_amd64_20260418.iso", true},
+		{"resolute", "26.04/ubuntu-base/ubuntu_base_26.04_arm64_20260418.tar.gz", "26.04", "ubuntu-base", "arm64", "ubuntu_base_26.04_arm64_20260418.tar.gz", true},
+		{"stonking", "26.10/ubuntu/ubuntu_desktop_26.10_amd64_20260418.iso", "26.10", "ubuntu", "amd64", "ubuntu_desktop_26.10_amd64_20260418.iso", true},
+		{"noble", "HEADER.html", "", "", "", "", false},
+		{"noble", "", "", "", "", "", false},
+		{"noble", "24.04", "", "", "", "", false},
+		{"noble", "/ubuntu/a.iso", "", "", "", "", false},
 	}
 	for _, tc := range cases {
 		got, ok := Parse(tc.container, tc.name)
@@ -135,18 +179,18 @@ func TestParse(t *testing.T) {
 		if !tc.ok {
 			continue
 		}
-		if got.Container != tc.container || got.Product != tc.product || got.Path != tc.path || got.Release.String() != tc.release {
-			t.Errorf("Parse(%q, %q) = %+v; want container %q release %q product %q path %q", tc.container, tc.name, got, tc.container, tc.release, tc.product, tc.path)
+		if got.Container != tc.container || got.Product != tc.product || got.Architecture != tc.arch || got.Path != tc.path || got.Release.String() != tc.release {
+			t.Errorf("Parse(%q, %q) = %+v; want container %q release %q product %q architecture %q path %q", tc.container, tc.name, got, tc.container, tc.release, tc.product, tc.arch, tc.path)
 		}
 	}
 }
 
 func TestObjectSeries(t *testing.T) {
-	versioned, _ := Parse("noble", "24.04.3/ubuntu/a.iso")
+	versioned, _ := Parse("noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso")
 	if s, ok := versioned.Series(); !ok || s != (Series{24, 4}) {
 		t.Errorf("versioned.Series() = %v, %v; want {24 4}, true", s, ok)
 	}
-	milestone, _ := Parse("noble", "beta/ubuntu/a.iso")
+	milestone, _ := Parse("noble", "24.04-beta/ubuntu/ubuntu_desktop_24.04-beta_amd64_20240322.iso")
 	if s, ok := milestone.Series(); ok {
 		t.Errorf("milestone.Series() = %v, true; want false", s)
 	}

@@ -70,10 +70,10 @@ The legacy layouts are projections of the parsed canonical tree rather than
 string rewrites: the release series names the directory (its version, and the
 container's codename wherever the legacy tree keeps both) and the object path is
 carried through. The semantic model (`internal/images`) discovers series,
-codenames, products and point releases from the tree itself — computed once per
-index snapshot and shared by every layout — and `internal/vfs` projects it onto
-each layout through a single `fs.FS` engine, so nothing about a particular
-series is configured or hard-coded.
+codenames, products, point releases and artifact architectures from the tree
+itself — computed once per index snapshot and shared by every layout — and
+`internal/vfs` projects it onto each layout through a single `fs.FS` engine, so
+nothing about a particular series is configured or hard-coded.
 
 ```sh
 # in config.toml
