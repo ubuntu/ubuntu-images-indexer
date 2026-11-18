@@ -12,8 +12,6 @@ paths=(
   jammy/22.04.5/ubuntu-server/ubuntu-server_live_22.04.5_amd64_20220418.iso
   jammy/22.04.5/ubuntu/ubuntu_desktop_22.04.5_amd64_20220418.iso
   noble/24.04-beta/ubuntu/ubuntu_desktop_24.04-beta_amd64_20240322.iso
-  noble/24.04-beta/ubuntu/ubuntu_desktop_24.04-beta_amd64_20240322.iso.sha256
-  noble/24.04-beta/ubuntu/ubuntu_desktop_24.04-beta_amd64_20240322.iso.sha256.gpg
   noble/24.04.3/edubuntu/edubuntu_desktop_24.04.3_amd64_20240418.iso
   noble/24.04.3/lubuntu/lubuntu_desktop_24.04.3_amd64_20240418.iso
   noble/24.04.3/ubuntu-base/ubuntu-base_24.04.3_amd64_20240418.tar.gz
@@ -24,26 +22,14 @@ paths=(
   noble/24.04.3/ubuntu-server/ubuntu-server_live_24.04.3_arm64_20240418.iso
   noble/24.04.3/ubuntu-unity/ubuntu-unity_desktop_24.04.3_amd64_20240418.iso
   noble/24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso
-  noble/24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso.sha256
-  noble/24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso.sha256.gpg
   noble/24.04.3/ubuntu/ubuntu_desktop_24.04.3_arm64_20240418.iso
   noble/24.04.3/ubuntucinnamon/ubuntucinnamon_desktop_24.04.3_amd64_20240418.iso
   noble/24.04.3/ubuntukylin/ubuntukylin_desktop_24.04.3_amd64_20240418.iso
   noble/24.04.3/ubuntustudio/ubuntustudio_desktop_24.04.3_amd64_20240418.iso
   noble/24.04.3/xubuntu/xubuntu_desktop_24.04.3_amd64_20240418.iso
-  noble/24.04.3/xubuntu/xubuntu_desktop_24.04.3_amd64_20240418.iso.sha256
-  noble/24.04.3/xubuntu/xubuntu_desktop_24.04.3_amd64_20240418.iso.sha256.gpg
   noble/24.04.3/xubuntu/xubuntu_minimal_24.04.3_amd64_20240418.iso
-  noble/24.04.3/xubuntu/xubuntu_minimal_24.04.3_amd64_20240418.iso.sha256
-  noble/24.04.3/xubuntu/xubuntu_minimal_24.04.3_amd64_20240418.iso.sha256.gpg
   noble/24.04.5/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso
-  noble/24.04.5/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso.manifest
-  noble/24.04.5/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso.sha256
-  noble/24.04.5/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso.sha256.gpg
-  noble/24.04.5/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso.zsync
   noble/24.04.5/ubuntu-mini-iso/ubuntu-mini-iso_24.04.5_amd64_20240418.iso
-  noble/24.04.5/ubuntu-mini-iso/ubuntu-mini-iso_24.04.5_amd64_20240418.iso.sha256
-  noble/24.04.5/ubuntu-mini-iso/ubuntu-mini-iso_24.04.5_amd64_20240418.iso.sha256.gpg
   noble/24.04/ubuntu-core/ubuntu_core_24_amd64_20240419.img.xz
   noble/24.04/ubuntu-core/ubuntu_core_24_arm64_20240419.img.xz
   noble/24.04/ubuntu-server/ubuntu-server_live_24.04_amd64_20240418.iso
@@ -54,11 +40,7 @@ paths=(
   resolute/26.04.1/ubuntu-server/ubuntu-server_live_26.04.1_amd64_20260418.iso
   resolute/26.04.1/ubuntu-server/ubuntu-server_live_26.04.1_arm64_20260418.iso
   resolute/26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso
-  resolute/26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso.sha256
-  resolute/26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso.sha256.gpg
   resolute/26.04.1/ubuntu/ubuntu_desktop_26.04.1_arm64_20260418.iso
-  resolute/26.04.1/ubuntu/ubuntu_desktop_26.04.1_arm64_20260418.iso.sha256
-  resolute/26.04.1/ubuntu/ubuntu_desktop_26.04.1_arm64_20260418.iso.sha256.gpg
   resolute/26.04/ubuntu-base/ubuntu-base_26.04_amd64_20260418.tar.gz
   resolute/26.04/ubuntu-server/ubuntu-server_live_26.04_amd64_20260418.iso
   resolute/26.04/ubuntu-wsl/ubuntu-wsl_26.04_amd64_20260418.wsl
@@ -67,13 +49,16 @@ paths=(
   trusty/14.04.6/ubuntu/ubuntu_desktop_14.04.6_amd64_20140412.iso
 )
 
-for path in "${paths[@]}"; do
-  size=$(( (RANDOM % 4 + 1) * 512 ))
-  echo "$path " >"$tmp"
-  head -c "$size" /dev/urandom >>"$tmp"
-  container="$(echo "$path" | cut -d'/' -f1)"
-  path="$(echo "$path" | cut -d'/' -f2-)"
+for basepath in "${paths[@]}"; do
+  container="$(echo "$basepath" | cut -d'/' -f1)"
   swift post "$container"
   swift post "$container" --read-acl ".r:*"
-  swift upload "$container" "$tmp" --object-name "$path"
+  for ext in "" ".manifest" ".list" ".sha256" ".sha256.gpg" ".zsync"; do
+    path="${basepath}${ext}"
+    size=$(( (RANDOM % 4 + 1) * 512 ))
+    echo "$path " >"$tmp"
+    head -c "$size" /dev/urandom >>"$tmp"
+    path="$(echo "$path" | cut -d'/' -f2-)"
+    swift upload "$container" "$tmp" --object-name "$path"
+  done
 done
