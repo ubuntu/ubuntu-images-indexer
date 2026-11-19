@@ -78,8 +78,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// "latest" is a virtual HTTP-only permalink: resolve it and redirect to
 	// the concrete tree, or straight to the object store if it names an object.
 	if target, ok := view.Latest(name); ok {
-		if res, ok := view.ResolvePath(target); ok && res.IsObject() {
-			http.Redirect(w, r, s.st.URL(res.Container, res.Object.Name), http.StatusFound)
+		if container, object, ok := view.Resolve(target); ok {
+			http.Redirect(w, r, s.st.URL(container, object), http.StatusFound)
 			return
 		}
 		http.Redirect(w, r, "/"+target, http.StatusFound)
@@ -93,8 +93,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if res.IsLink() {
 		// HTTP has no symlinks: a link is just a redirect to its target.
-		if target, ok := view.ResolvePath(res.Target); ok && target.IsObject() {
-			http.Redirect(w, r, s.st.URL(target.Container, target.Object.Name), http.StatusFound)
+		if container, object, ok := view.Resolve(res.Target); ok {
+			http.Redirect(w, r, s.st.URL(container, object), http.StatusFound)
 			return
 		}
 		http.Redirect(w, r, "/"+res.Target, http.StatusFound)

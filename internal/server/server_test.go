@@ -119,6 +119,7 @@ func TestLatestRedirect(t *testing.T) {
 		"noble": {
 			{Name: "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", Size: 10},
 			{Name: "24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso.sha256", Size: 10},
+			{Name: "24.04.5/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso", Size: 10},
 		},
 	}}
 	s := newServer(t, st, nil)
@@ -139,6 +140,17 @@ func TestLatestRedirect(t *testing.T) {
 	}
 	if loc := rec.Header().Get("Location"); loc != "/noble/24.04.5/ubuntu" {
 		t.Errorf("dir Location = %q", loc)
+	}
+
+	// A codename-based virtual file follows the latest symlink and then its
+	// own target, so it redirects straight to the real object.
+	rec = httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/noble/latest/kubuntu/kubuntu_desktop_noble_amd64.iso", nil))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("stable file status = %d, want 302", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "https://store/noble/24.04.5/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso" {
+		t.Errorf("stable file Location = %q", loc)
 	}
 
 	// HTTP has no symlinks, so the canonical latest link is just a normal

@@ -145,6 +145,13 @@ release. On rsync it is a real symlink (preserved with `-l`); on HTTP it is
 rendered as an ordinary link and requests are redirected (302) to the current
 target, straight to the object store when that target names an object.
 
+Each artifact also has a codename-based sibling, with the point release and
+build date replaced by the series codename: for example,
+`kubuntu_desktop_24.04.5_amd64_20240418.iso` is also available as
+`kubuntu_desktop_noble_amd64.iso`. Combined with the `latest` symlink, that
+gives a stable path to the newest image:
+`noble/latest/kubuntu/kubuntu_desktop_noble_amd64.iso`.
+
 HTTP also answers a synthetic `latest` release segment for a specific product,
 `{container}/latest/{product}/...`, redirecting (302) to the newest release of
 that product in the series. For example, `/noble/latest/ubuntu/` redirects to

@@ -122,6 +122,14 @@ func TestRsyncDaemonServesLatestSymlink(t *testing.T) {
 	if !strings.Contains(out, "ubuntu_desktop_24.04.5_amd64_20240418.iso") {
 		t.Errorf("listing through latest is not the newest release:\n%s", out)
 	}
+
+	out, err = run(t, rsyncBin, "-l", "--list-only", url+"/noble/latest/kubuntu/")
+	if err != nil {
+		t.Fatalf("list stable names: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "kubuntu_desktop_noble_amd64.iso -> kubuntu_desktop_24.04.5_amd64_20240418.iso") {
+		t.Errorf("listing missing codename-based symlink:\n%s", out)
+	}
 }
 
 // run executes a command with a timeout and returns its combined output.

@@ -506,6 +506,7 @@ func (v *View) ensureLocked() {
 	links := make(map[string]string)
 	if v.layout == LayoutImages {
 		links = v.latestLinksLocked(objects)
+		addStableAliases(objects, links)
 	}
 	names := make([]string, 0, len(objects)+len(links))
 	for name := range objects {
@@ -552,6 +553,65 @@ func (v *View) latestLinksLocked(objects map[string]canonicalObject) map[string]
 		links[name] = latest.String()
 	}
 	return links
+}
+
+// addStableAliases adds the canonical layout's codename-based file aliases.
+// Every artifact gets a sibling symlink whose name carries the series codename
+// instead of the point release and build date, so
+// kubuntu_desktop_24.04.5_amd64_20240418.iso is also reachable as
+// kubuntu_desktop_noble_amd64.iso. Through the latest symlink that name stays
+// valid across point releases.
+func addStableAliases(objects map[string]canonicalObject, links map[string]string) {
+	names := make([]string, 0, len(objects))
+	for name := range objects {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+
+	for _, name := range names {
+		container, objectPath, _ := strings.Cut(name, "/")
+		if container == "" || objectPath == "" {
+			continue
+		}
+		obj, ok := images.Parse(container, objectPath)
+		if !ok || obj.Project == "" {
+			continue
+		}
+		alias := stableArtifactName(obj, container)
+		if alias == "" || alias == base(objectPath) {
+			continue
+		}
+		dir := name[:strings.LastIndexByte(name, '/')+1]
+		path := dir + alias
+		if !fs.ValidPath(path) {
+			continue
+		}
+		if _, ok := objects[path]; ok {
+			continue
+		}
+		if _, ok := links[path]; ok {
+			continue
+		}
+		links[path] = base(objectPath)
+	}
+}
+
+// stableArtifactName rebuilds an artifact name with the series codename in
+// place of its version and without its build date, as in
+// {project}[_{subproject}]_{codename}_{arch}{ext}.
+func stableArtifactName(obj images.Object, codename string) string {
+	var b strings.Builder
+	for _, part := range []string{obj.Project, obj.Subproject, codename, obj.Architecture} {
+		if part == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('_')
+		}
+		b.WriteString(part)
+	}
+	b.WriteString(obj.Extension)
+	return b.String()
 }
 
 // addChecksumAliases materialises the folder-level checksum files the old
