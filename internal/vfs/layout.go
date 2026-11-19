@@ -249,6 +249,7 @@ type View struct {
 	version uint64
 	loaded  bool
 	objects map[string]canonicalObject // virtual path -> object
+	links   map[string]string          // virtual path -> symlink target
 	names   []string
 }
 
@@ -267,18 +268,25 @@ func (c *Catalog) View(ctx context.Context, st storage.Storage, l Layout) *View 
 }
 
 // resolve implements pathMapper.
-func (v *View) resolve(name string) (dir bool, obj canonicalObject, ok bool) {
+func (v *View) resolve(name string) (mapping, bool) {
 	if !fs.ValidPath(name) {
-		return false, canonicalObject{}, false
+		return mapping{}, false
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.ensureLocked()
-	if obj, ok := v.lookupLocked(name); ok {
-		return false, obj, true
+	path, ok := v.followLocked(name)
+	if !ok {
+		return mapping{}, false
 	}
-	files, dirs := v.childrenLocked(name)
-	return true, canonicalObject{}, len(files) > 0 || len(dirs) > 0
+	if obj, ok := v.lookupLocked(path); ok {
+		return mapping{obj: obj, path: path}, true
+	}
+	files, dirs := v.childrenLocked(path)
+	if len(files) > 0 || len(dirs) > 0 || path == "." {
+		return mapping{dir: true, path: path}, true
+	}
+	return mapping{}, false
 }
 
 // entries implements pathMapper.
@@ -286,48 +294,167 @@ func (v *View) entries(name string) []fs.DirEntry {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.ensureLocked()
+	if path, ok := v.followLocked(name); ok {
+		name = path
+	}
 	return v.entriesLocked(name)
+}
+
+// followLocked resolves symlinks in name, returning the virtual path they lead
+// to. Links may point at directories or objects, and may chain.
+func (v *View) followLocked(name string) (string, bool) {
+	if name == "." {
+		return ".", true
+	}
+	pending := strings.Split(name, "/")
+	var resolved []string
+	hops := 0
+	for len(pending) > 0 {
+		part := pending[0]
+		pending = pending[1:]
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if len(resolved) == 0 {
+				return "", false
+			}
+			resolved = resolved[:len(resolved)-1]
+			continue
+		}
+		resolved = append(resolved, part)
+		target, ok := v.links[strings.Join(resolved, "/")]
+		if !ok {
+			continue
+		}
+		hops++
+		if hops > 40 {
+			return "", false
+		}
+		resolved = resolved[:len(resolved)-1]
+		pending = append(strings.Split(target, "/"), pending...)
+	}
+	if len(resolved) == 0 {
+		return ".", true
+	}
+	return strings.Join(resolved, "/"), true
+}
+
+// readLink implements linkMapper.
+func (v *View) readLink(name string) (string, bool) {
+	if !fs.ValidPath(name) {
+		return "", false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.ensureLocked()
+	return v.readLinkLocked(name)
+}
+
+// readLinkLocked returns the target of the symlink at name. Symlinks in the
+// parent components are followed, but the final component is not.
+func (v *View) readLinkLocked(name string) (string, bool) {
+	if name == "." {
+		return "", false
+	}
+	dir, file := "", name
+	if i := strings.LastIndexByte(name, '/'); i >= 0 {
+		dir, file = name[:i], name[i+1:]
+	}
+	parent := "."
+	if dir != "" {
+		resolved, ok := v.followLocked(dir)
+		if !ok {
+			return "", false
+		}
+		parent = resolved
+	}
+	path := file
+	if parent != "." {
+		path = parent + "/" + file
+	}
+	target, ok := v.links[path]
+	return target, ok
+}
+
+// lstat implements linkMapper.
+func (v *View) lstat(name string) (fs.FileInfo, bool) {
+	if !fs.ValidPath(name) {
+		return nil, false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.ensureLocked()
+	target, ok := v.readLinkLocked(name)
+	if !ok {
+		return nil, false
+	}
+	return symlinkInfo(base(name), target), true
 }
 
 // Resolve returns the storage container and object name backing the virtual
 // path, reporting whether the path names an indexed object. It is used by
 // frontends that redirect to the object store rather than stream the bytes.
 func (v *View) Resolve(name string) (container, object string, ok bool) {
-	dir, obj, ok := v.resolve(name)
-	if !ok || dir {
+	m, ok := v.resolve(name)
+	if !ok || m.dir {
 		return "", "", false
 	}
-	return obj.container, obj.object.Name, true
+	return m.obj.container, m.obj.object.Name, true
 }
 
-// Resolution describes a resolved path in a view: either the indexed object
-// it names, or the entries of the directory it names.
+// Resolution describes a resolved path in a view: the indexed object it names,
+// the entries of the directory it names, or a symlink.
 type Resolution struct {
 	Container string         // set when the path names an indexed object
 	Object    storage.Object // ditto
 	Entries   []fs.DirEntry  // set when the path names a directory
+
+	Link   string // literal target when the path names a symlink
+	Target string // resolved virtual path the symlink points at
 }
 
 // IsObject reports whether the path names an indexed object rather than a
-// directory.
-func (r Resolution) IsObject() bool { return r.Entries == nil }
+// directory or symlink.
+func (r Resolution) IsObject() bool { return r.Entries == nil && r.Link == "" }
 
-// ResolvePath resolves a virtual path to either the canonical object backing
-// it or the entries of the directory it names, reporting whether the path
-// exists at all. It is the single lookup the HTTP listener needs: object
-// requests redirect to the store, directories render their entries.
+// IsLink reports whether the path itself names a symlink.
+func (r Resolution) IsLink() bool { return r.Link != "" }
+
+// ResolvePath resolves a virtual path to the canonical object backing it, the
+// entries of the directory it names, or the symlink it is, reporting whether
+// the path exists at all. It is the single lookup the HTTP listener needs:
+// object requests redirect to the store, directories render their entries, and
+// symlinks redirect to their target.
 func (v *View) ResolvePath(name string) (Resolution, bool) {
-	if name == "." {
-		return Resolution{Entries: v.entries(name)}, true
+	if !fs.ValidPath(name) {
+		return Resolution{}, false
 	}
-	dir, obj, ok := v.resolve(name)
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.ensureLocked()
+	if name == "." {
+		return Resolution{Entries: v.entriesLocked(name)}, true
+	}
+	if target, ok := v.readLinkLocked(name); ok {
+		path, ok := v.followLocked(name)
+		if !ok {
+			return Resolution{}, false
+		}
+		return Resolution{Link: target, Target: path}, true
+	}
+	path, ok := v.followLocked(name)
 	if !ok {
 		return Resolution{}, false
 	}
-	if !dir {
+	if obj, ok := v.lookupLocked(path); ok {
 		return Resolution{Container: obj.container, Object: obj.object}, true
 	}
-	return Resolution{Entries: v.entries(name)}, true
+	files, dirs := v.childrenLocked(path)
+	if len(files) == 0 && len(dirs) == 0 && path != "." {
+		return Resolution{}, false
+	}
+	return Resolution{Entries: v.entriesLocked(path)}, true
 }
 
 // lookupLocked resolves a virtual path to its canonical object. Most paths are
@@ -376,15 +503,55 @@ func (v *View) ensureLocked() {
 	if v.layout == LayoutCDImage {
 		addChecksumAliases(objects)
 	}
-	names := make([]string, 0, len(objects))
+	links := make(map[string]string)
+	if v.layout == LayoutImages {
+		links = v.latestLinksLocked(objects)
+	}
+	names := make([]string, 0, len(objects)+len(links))
 	for name := range objects {
+		names = append(names, name)
+	}
+	for name := range links {
 		names = append(names, name)
 	}
 	slices.Sort(names)
 	v.objects = objects
+	v.links = links
 	v.names = names
 	v.version = version
 	v.loaded = true
+}
+
+// latestLinksLocked returns the "latest" symlinks of the canonical layout. Each
+// series container gets a link to the newest release version in that series, so
+// clients can keep using an unchanging path while the link follows every new
+// point release.
+func (v *View) latestLinksLocked(objects map[string]canonicalObject) map[string]string {
+	links := make(map[string]string)
+	catalog := v.cat.Load()
+	for _, container := range v.idx.Containers() {
+		if legacyContainers[container] {
+			continue
+		}
+		series, ok := catalog.ResolveContainer(container)
+		if !ok {
+			continue
+		}
+		latest, ok := catalog.LatestRelease(series)
+		if !ok {
+			continue
+		}
+		name := container + "/" + latestSegment
+		if _, ok := objects[name]; ok {
+			continue
+		}
+		files, dirs := v.idx.Children(container, latest.String())
+		if len(files) == 0 && len(dirs) == 0 {
+			continue
+		}
+		links[name] = latest.String()
+	}
+	return links
 }
 
 // addChecksumAliases materialises the folder-level checksum files the old
@@ -448,17 +615,16 @@ func checksumImage(file string) (string, bool) {
 	return "", false
 }
 
-// latestSegment is the synthetic path segment naming the newest release of a
-// product in a series. It exists only in the HTTP virtual namespace: it is
-// never added to the fs.FS, so it does not appear in listings and rsync never
-// sees it.
+// latestSegment names the canonical layout's latest symlink and the synthetic
+// HTTP release segment that resolves it per product.
 const latestSegment = "latest"
 
-// Latest resolves a virtual path whose release segment is the synthetic
-// "latest" segment to the concrete virtual path of the series' newest release
-// of the named product. It is used by the HTTP listener to redirect. Only the
-// canonical images layout exposes an explicit release and product, so only it
-// answers; the legacy layouts report false.
+// Latest resolves a path whose release segment is the synthetic "latest"
+// segment to the concrete virtual path of the series' newest release of the
+// named product. The canonical layout also materialises a series-level "latest"
+// symlink; this per-product lookup is HTTP-only and handles paths that descend
+// through it. Only the canonical images layout exposes an explicit release and
+// product, so only it answers; the legacy layouts report false.
 func (v *View) Latest(name string) (string, bool) {
 	if v.layout != LayoutImages || !fs.ValidPath(name) {
 		return "", false
@@ -485,6 +651,7 @@ func (v *View) Latest(name string) (string, bool) {
 type virtualObject struct {
 	name string
 	obj  storage.Object
+	link string // non-empty when the entry is a symlink
 }
 
 func (v *View) childrenLocked(name string) (files []virtualObject, dirs []string) {
@@ -510,7 +677,11 @@ func (v *View) childrenLocked(name string) (files []virtualObject, dirs []string
 			}
 			continue
 		}
-		files = append(files, virtualObject{name: n, obj: v.objects[n].object})
+		if obj, ok := v.objects[n]; ok {
+			files = append(files, virtualObject{name: n, obj: obj.object})
+		} else if target, ok := v.links[n]; ok {
+			files = append(files, virtualObject{name: n, link: target})
+		}
 	}
 	return files, dirs
 }
@@ -522,6 +693,10 @@ func (v *View) entriesLocked(name string) []fs.DirEntry {
 		out = append(out, dirEntry{name: d, dir: true})
 	}
 	for _, f := range files {
+		if f.link != "" {
+			out = append(out, dirEntry{name: base(f.name), info: symlinkInfo(base(f.name), f.link)})
+			continue
+		}
 		out = append(out, dirEntry{name: base(f.name), info: objectInfo(base(f.name), f.obj)})
 	}
 	return out

@@ -10,10 +10,11 @@ import (
 // and computes the latest release of every product. Everything it knows is
 // read from the objects it is built from; nothing is configured.
 type Catalog struct {
-	series     map[Series]*seriesInfo
-	aliases    map[string]Series
-	containers map[string]Series
-	latest     map[productKey]Version
+	series        map[Series]*seriesInfo
+	aliases       map[string]Series
+	containers    map[string]Series
+	latest        map[productKey]Version
+	latestRelease map[Series]Version
 }
 
 type productKey struct {
@@ -32,10 +33,11 @@ type seriesInfo struct {
 // create a series.
 func NewCatalog(objects []Object) *Catalog {
 	c := &Catalog{
-		series:     make(map[Series]*seriesInfo),
-		aliases:    make(map[string]Series),
-		containers: make(map[string]Series),
-		latest:     make(map[productKey]Version),
+		series:        make(map[Series]*seriesInfo),
+		aliases:       make(map[string]Series),
+		containers:    make(map[string]Series),
+		latest:        make(map[productKey]Version),
+		latestRelease: make(map[Series]Version),
 	}
 
 	// container -> series -> number of versioned objects, used to work out
@@ -60,6 +62,9 @@ func NewCatalog(objects []Object) *Catalog {
 		key := productKey{series: s, product: o.Product}
 		if best, ok := c.latest[key]; !ok || o.Release.Version.Compare(best) > 0 {
 			c.latest[key] = o.Release.Version
+		}
+		if best, ok := c.latestRelease[s]; !ok || o.Release.Version.Compare(best) > 0 {
+			c.latestRelease[s] = o.Release.Version
 		}
 
 		if o.Container != "" {
@@ -140,6 +145,17 @@ func (c *Catalog) Products(s Series) []string {
 // reporting false when the series carries no versioned release of it.
 func (c *Catalog) Latest(s Series, product string) (Version, bool) {
 	v, ok := c.latest[productKey{series: s, product: product}]
+	if !ok {
+		return nil, false
+	}
+	return slices.Clone(v), true
+}
+
+// LatestRelease returns the newest versioned release in a series, across every
+// product the series carries, reporting false when the series has no versioned
+// release.
+func (c *Catalog) LatestRelease(s Series) (Version, bool) {
+	v, ok := c.latestRelease[s]
 	if !ok {
 		return nil, false
 	}

@@ -15,15 +15,34 @@ import (
 	"github.com/ubuntu/ubimi/internal/storage"
 )
 
+// mapping describes what a virtual path names once symlinks are followed.
+type mapping struct {
+	// dir reports that the path names a directory; otherwise it names the
+	// indexed object in obj.
+	dir bool
+	obj canonicalObject
+	// path is the virtual path after following any symlinks in the requested
+	// path. It equals the requested path when there are none.
+	path string
+}
+
 // pathMapper resolves the paths of one projection of the canonical tree: the
 // canonical mapping (canonicalMapper) or a legacy layout projection (View).
 type pathMapper interface {
-	// resolve reports the path's kind: an indexed object (obj set) or a
-	// directory. ok is false when the path does not exist.
-	resolve(name string) (dir bool, obj canonicalObject, ok bool)
+	// resolve maps a path to the object or directory it names, following
+	// symlinks. ok is false when the path does not exist.
+	resolve(name string) (mapping, bool)
 	// entries lists the directory entries at name. It is only called for
 	// directories, including "." for the root.
 	entries(name string) []fs.DirEntry
+}
+
+// linkMapper is implemented by path mappers that expose symlinks.
+type linkMapper interface {
+	// readLink returns the target of the symlink at name.
+	readLink(name string) (string, bool)
+	// lstat describes the symlink at name without following it.
+	lstat(name string) (fs.FileInfo, bool)
 }
 
 // fsView is the single fs.FS implementation behind every projection: it turns
@@ -45,21 +64,66 @@ func (f fsView) Open(name string) (fs.File, error) {
 	if name == "." {
 		return &dirFile{src: f.m, name: "."}, nil
 	}
-	dir, obj, ok := f.m.resolve(name)
+	m, ok := f.m.resolve(name)
 	if !ok {
 		return nil, notExist(name)
 	}
-	if dir {
-		return &dirFile{src: f.m, name: name}, nil
+	if m.dir {
+		return &dirFile{src: f.m, name: m.path}, nil
 	}
 	return &objectFile{
 		ctx:       f.ctx,
 		st:        f.st,
 		name:      name,
-		container: obj.container,
-		object:    obj.object.Name,
-		info:      objectInfo(base(name), obj.object),
+		container: m.obj.container,
+		object:    m.obj.object.Name,
+		info:      objectInfo(base(name), m.obj.object),
 	}, nil
+}
+
+// Stat implements fs.StatFS, following symlinks. The HTTP listener and fs.Stat
+// use it to inspect the concrete target of a path.
+func (f fsView) Stat(name string) (fs.FileInfo, error) {
+	if !fs.ValidPath(name) {
+		return nil, notExist(name)
+	}
+	if name == "." {
+		return dirInfo("."), nil
+	}
+	m, ok := f.m.resolve(name)
+	if !ok {
+		return nil, notExist(name)
+	}
+	if m.dir {
+		return dirInfo(base(name)), nil
+	}
+	return objectInfo(base(name), m.obj.object), nil
+}
+
+// Lstat implements fs.ReadLinkFS, describing a symlink without following it.
+func (f fsView) Lstat(name string) (fs.FileInfo, error) {
+	if !fs.ValidPath(name) {
+		return nil, notExist(name)
+	}
+	if name == "." {
+		return dirInfo("."), nil
+	}
+	if lm, ok := f.m.(linkMapper); ok {
+		if info, ok := lm.lstat(name); ok {
+			return info, nil
+		}
+	}
+	return f.Stat(name)
+}
+
+// ReadLink implements fs.ReadLinkFS.
+func (f fsView) ReadLink(name string) (string, error) {
+	if lm, ok := f.m.(linkMapper); ok {
+		if target, ok := lm.readLink(name); ok {
+			return target, nil
+		}
+	}
+	return "", &fs.PathError{Op: "readlink", Path: name, Err: fs.ErrInvalid}
 }
 
 // canonicalObject pairs a canonical object with the storage container it
@@ -91,21 +155,21 @@ type canonicalMapper struct {
 }
 
 // resolve implements pathMapper.
-func (c canonicalMapper) resolve(name string) (dir bool, obj canonicalObject, ok bool) {
+func (c canonicalMapper) resolve(name string) (mapping, bool) {
 	container, prefix, _ := strings.Cut(name, "/")
 	if prefix == "" {
 		// A container root is a directory whenever the container exists,
 		// even if it currently holds no objects.
 		if !c.idx.HasContainer(container) {
-			return false, canonicalObject{}, false
+			return mapping{}, false
 		}
-		return true, canonicalObject{}, true
+		return mapping{dir: true, path: name}, true
 	}
 	if obj, ok := c.idx.Lookup(container, prefix); ok {
-		return false, canonicalObject{container: container, object: obj}, true
+		return mapping{obj: canonicalObject{container: container, object: obj}, path: name}, true
 	}
 	files, dirs := c.idx.Children(container, prefix)
-	return true, canonicalObject{}, len(files) > 0 || len(dirs) > 0
+	return mapping{dir: true, path: name}, len(files) > 0 || len(dirs) > 0
 }
 
 // entries implements pathMapper.

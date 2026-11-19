@@ -81,6 +81,49 @@ func TestRsyncDaemonServesFS(t *testing.T) {
 	}
 }
 
+// TestRsyncDaemonServesLatestSymlink checks that the canonical layout's latest
+// permalink reaches rsync as a real symlink, and that requests through it
+// follow to the newest release.
+func TestRsyncDaemonServesLatestSymlink(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping rsync integration test in short mode")
+	}
+	rsyncBin, err := exec.LookPath("rsync")
+	if err != nil {
+		t.Skip("rsync client not installed")
+	}
+
+	server, err := rsyncd.NewServer([]rsyncd.Module{{Name: "test", FS: newLayoutView(t, LayoutImages)}}, rsyncd.DontRestrict())
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go server.Serve(ctx, ln)
+
+	url := "rsync://" + ln.Addr().String() + "/test"
+
+	out, err := run(t, rsyncBin, "-l", "--list-only", url+"/noble/")
+	if err != nil {
+		t.Fatalf("list: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "latest -> 24.04.5") {
+		t.Errorf("listing missing latest symlink:\n%s", out)
+	}
+
+	out, err = run(t, rsyncBin, "-r", "--list-only", url+"/noble/latest/ubuntu/")
+	if err != nil {
+		t.Fatalf("list through latest: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "ubuntu_desktop_24.04.5_amd64_20240418.iso") {
+		t.Errorf("listing through latest is not the newest release:\n%s", out)
+	}
+}
+
 // run executes a command with a timeout and returns its combined output.
 func run(t *testing.T, name string, args ...string) (string, error) {
 	t.Helper()

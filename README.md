@@ -137,15 +137,18 @@ same layout logic drives both the HTTP and rsync listeners.
 
 ### Latest permalinks
 
-The HTTP listener also answers a synthetic `latest` segment on the canonical
-layout, `{container}/latest/{product}/...`, redirecting (302) to the newest
-release of that product in the series — straight to the object store when it
-names an object, or to the concrete directory otherwise. For example, with
-`noble` at `24.04` and its newest `ubuntu` release at `24.04.5`,
-`/noble/latest/ubuntu/` redirects to `/noble/24.04.5/ubuntu/`.
+The canonical layout exposes a `latest` symlink in every series container,
+`{container}/latest`, pointing at the newest release version in that series —
+for example, `noble/latest -> 24.04.5`. The link is rebuilt with every index
+refresh, so clients can keep using the same path while it follows each new point
+release. On rsync it is a real symlink (preserved with `-l`); on HTTP it is
+rendered as an ordinary link and requests are redirected (302) to the current
+target, straight to the object store when that target names an object.
 
-The segment is entirely virtual: it is never inserted into the `fs.FS`, so it
-does not appear in listings and is invisible to the rsync listener.
+HTTP also answers a synthetic `latest` release segment for a specific product,
+`{container}/latest/{product}/...`, redirecting (302) to the newest release of
+that product in the series. For example, `/noble/latest/ubuntu/` redirects to
+`/noble/24.04.5/ubuntu/`.
 
 ## Testing
 

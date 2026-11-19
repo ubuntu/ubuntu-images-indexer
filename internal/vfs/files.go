@@ -126,9 +126,14 @@ type dirEntry struct {
 	info fs.FileInfo
 }
 
-func (e dirEntry) Name() string               { return e.name }
-func (e dirEntry) IsDir() bool                { return e.dir }
-func (e dirEntry) Type() fs.FileMode          { return dirInfo(e.name).Mode().Type() }
+func (e dirEntry) Name() string { return e.name }
+func (e dirEntry) IsDir() bool  { return e.dir }
+func (e dirEntry) Type() fs.FileMode {
+	if e.info != nil {
+		return e.info.Mode().Type()
+	}
+	return dirInfo(e.name).Mode().Type()
+}
 func (e dirEntry) Info() (fs.FileInfo, error) { return e.infoOrDirInfo(), nil }
 func (e dirEntry) infoOrDirInfo() fs.FileInfo {
 	if e.info != nil {
@@ -158,6 +163,10 @@ func dirInfo(name string) fileInfo {
 
 func objectInfo(name string, obj storage.Object) fileInfo {
 	return fileInfo{name: name, size: obj.Size, mode: 0o444, mod: obj.LastModified}
+}
+
+func symlinkInfo(name, target string) fileInfo {
+	return fileInfo{name: name, size: int64(len(target)), mode: fs.ModeSymlink | 0o777}
 }
 
 // base returns the last path element of a slash-separated name.

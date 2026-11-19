@@ -91,6 +91,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if res.IsLink() {
+		// HTTP has no symlinks: a link is just a redirect to its target.
+		if target, ok := view.ResolvePath(res.Target); ok && target.IsObject() {
+			http.Redirect(w, r, s.st.URL(target.Container, target.Object.Name), http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, "/"+res.Target, http.StatusFound)
+		return
+	}
 	if res.IsObject() {
 		// An indexed object is served by redirecting to the object store.
 		http.Redirect(w, r, s.st.URL(res.Container, res.Object.Name), http.StatusFound)
@@ -125,6 +134,29 @@ func (s *Server) renderListing(w http.ResponseWriter, view *vfs.View, entries []
 		full := e.Name()
 		if clean != "" {
 			full = clean + "/" + e.Name()
+		}
+		if e.Type()&fs.ModeSymlink != 0 {
+			// HTTP has no symlinks: render one as a normal link to whatever
+			// it targets, so /noble/latest follows the newest release.
+			link, ok := view.ResolvePath(full)
+			if !ok || !link.IsLink() {
+				continue
+			}
+			target, ok := view.ResolvePath(link.Target)
+			if !ok {
+				continue
+			}
+			if target.IsObject() {
+				data.Files = append(data.Files, entry{
+					Name:     e.Name(),
+					URL:      s.st.URL(target.Container, target.Object.Name),
+					Size:     humanSize(target.Object.Size),
+					Modified: formatTime(target.Object.LastModified),
+				})
+				continue
+			}
+			data.Dirs = append(data.Dirs, entry{Name: e.Name(), URL: "/" + link.Target + "/"})
+			continue
 		}
 		if e.IsDir() {
 			data.Dirs = append(data.Dirs, entry{Name: e.Name(), URL: "/" + full + "/"})

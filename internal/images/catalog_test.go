@@ -122,6 +122,26 @@ func TestCatalogLatest(t *testing.T) {
 	}
 }
 
+func TestCatalogLatestRelease(t *testing.T) {
+	c := newSampleCatalog(t)
+	cases := []struct {
+		series Series
+		want   Version
+		ok     bool
+	}{
+		{Series{24, 4}, Version{24, 4, 5}, true},
+		{Series{26, 4}, Version{26, 4, 1}, true},
+		{Series{26, 10}, Version{26, 10}, true},
+		{Series{99, 9}, nil, false},
+	}
+	for _, tc := range cases {
+		got, ok := c.LatestRelease(tc.series)
+		if ok != tc.ok || got.Compare(tc.want) != 0 {
+			t.Errorf("LatestRelease(%v) = %v, %v; want %v, %v", tc.series, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 // TestNewCatalogNoVersionedSeries checks that a tree made only of milestone
 // releases has no series and no latest.
 func TestNewCatalogNoVersionedSeries(t *testing.T) {

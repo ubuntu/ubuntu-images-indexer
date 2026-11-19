@@ -140,6 +140,24 @@ func TestLatestRedirect(t *testing.T) {
 	if loc := rec.Header().Get("Location"); loc != "/noble/24.04.5/ubuntu" {
 		t.Errorf("dir Location = %q", loc)
 	}
+
+	// HTTP has no symlinks, so the canonical latest link is just a normal
+	// redirect to its target, and the listing links to that target.
+	rec = httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/noble/latest", nil))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("latest status = %d, want 302", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/noble/24.04.5" {
+		t.Errorf("latest Location = %q", loc)
+	}
+
+	rec = httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/noble/", nil))
+	body := rec.Body.String()
+	if !strings.Contains(body, `href="/noble/24.04.5/"`) || !strings.Contains(body, ">latest/</a>") {
+		t.Errorf("listing missing latest link: %s", body)
+	}
 }
 
 func TestNotFound(t *testing.T) {

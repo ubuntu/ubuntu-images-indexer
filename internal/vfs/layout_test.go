@@ -254,8 +254,8 @@ func TestViewImagesTree(t *testing.T) {
 	}
 }
 
-// TestViewLatest checks the HTTP-only synthetic "latest" segment, resolved
-// from the discovered catalog rather than being part of the tree.
+// TestViewLatest checks the synthetic "latest" segment, resolved from the
+// discovered catalog, and the canonical layout's latest symlink.
 func TestViewLatest(t *testing.T) {
 	st := fakeStorage{
 		objects: map[string][]storage.Object{
@@ -267,6 +267,9 @@ func TestViewLatest(t *testing.T) {
 			},
 			"resolute": {
 				{Name: "26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso"},
+				// A stray object from a later series must not become resolute's
+				// latest release.
+				{Name: "26.10/ubuntu/ubuntu_desktop_26.10_amd64_20260418.iso"},
 			},
 		},
 		content: map[string]string{"noble/24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso.sha256": "sums"},
@@ -299,18 +302,48 @@ func TestViewLatest(t *testing.T) {
 		}
 	}
 
-	// The synthetic segment is not part of the fs.FS, so rsync never sees it,
-	// and it does not leak into listings.
-	if _, err := fs.Stat(v, "noble/latest/ubuntu"); err == nil {
-		t.Error("latest segment is visible in the fs.FS")
+	// The canonical layout also exposes latest as a real symlink, so rsync
+	// clients get a symlink that follows every new point release.
+	if got, err := fs.ReadLink(v, "noble/latest"); err != nil || got != "24.04.5" {
+		t.Errorf("ReadLink(noble/latest) = %q, %v; want 24.04.5", got, err)
+	}
+	info, err := fs.Lstat(v, "noble/latest")
+	if err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		t.Errorf("Lstat(noble/latest) = %v, %v; want a symlink", info, err)
+	}
+	if _, err := fs.Stat(v, "noble/latest/ubuntu"); err != nil {
+		t.Errorf("Stat through latest symlink: %v", err)
+	}
+	if got, err := fs.ReadLink(v, "resolute/latest"); err != nil || got != "26.04.1" {
+		t.Errorf("ReadLink(resolute/latest) = %q, %v; want 26.04.1", got, err)
 	}
 	entries, err := fs.ReadDir(v, "noble")
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
 	}
+	found := false
+	for _, e := range entries {
+		if e.Name() != "latest" {
+			continue
+		}
+		found = true
+		if e.Type()&fs.ModeSymlink == 0 || e.IsDir() {
+			t.Errorf("latest entry = %v; want a symlink", e)
+		}
+	}
+	if !found {
+		t.Errorf("latest missing from noble listing: %v", entries)
+	}
+
+	// Only the canonical layout has symlinks.
+	releases := cat.View(context.Background(), st, LayoutReleases)
+	entries, err = fs.ReadDir(releases, "24.04")
+	if err != nil {
+		t.Fatalf("ReadDir releases: %v", err)
+	}
 	for _, e := range entries {
 		if e.Name() == "latest" {
-			t.Errorf("latest leaked into the noble listing: %v", entries)
+			t.Errorf("releases layout exposed latest: %v", entries)
 		}
 	}
 }
