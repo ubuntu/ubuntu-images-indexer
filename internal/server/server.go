@@ -75,17 +75,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		name = "."
 	}
 
-	// "latest" is a virtual HTTP-only permalink: resolve it and redirect to
-	// the concrete tree, or straight to the object store if it names an object.
-	if target, ok := view.Latest(name); ok {
-		if container, object, ok := view.Resolve(target); ok {
-			http.Redirect(w, r, s.st.URL(container, object), http.StatusFound)
-			return
-		}
-		http.Redirect(w, r, "/"+target, http.StatusFound)
-		return
-	}
-
 	res, ok := view.ResolvePath(name)
 	if !ok {
 		http.NotFound(w, r)
@@ -137,9 +126,14 @@ func (s *Server) renderListing(w http.ResponseWriter, view *vfs.View, entries []
 		}
 		if e.Type()&fs.ModeSymlink != 0 {
 			// HTTP has no symlinks: render one as a normal link to whatever
-			// it targets, so /noble/latest follows the newest release.
+			// it targets. The latest root is a virtual folder even though it is
+			// reported as a symlink, so link to it as a directory instead.
 			link, ok := view.ResolvePath(full)
-			if !ok || !link.IsLink() {
+			if !ok {
+				continue
+			}
+			if !link.IsLink() {
+				data.Dirs = append(data.Dirs, entry{Name: e.Name(), URL: "/" + full + "/"})
 				continue
 			}
 			target, ok := view.ResolvePath(link.Target)

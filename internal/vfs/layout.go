@@ -251,6 +251,14 @@ type View struct {
 	objects map[string]canonicalObject // virtual path -> object
 	links   map[string]string          // virtual path -> symlink target
 	names   []string
+
+	// The latest namespace is an overlay: it presents each product's newest
+	// release (and its codename-based aliases) under {container}/latest
+	// without exposing those aliases in the real release directories.
+	latestRoots   map[string]string          // {container}/latest -> release the symlink names
+	latestObjects map[string]canonicalObject // {container}/latest/... -> object
+	latestLinks   map[string]string          // {container}/latest/... -> symlink target
+	latestNames   []string
 }
 
 // View returns a view of the canonical images tree through layout l, reading
@@ -323,7 +331,17 @@ func (v *View) followLocked(name string) (string, bool) {
 			continue
 		}
 		resolved = append(resolved, part)
-		target, ok := v.links[strings.Join(resolved, "/")]
+		path := strings.Join(resolved, "/")
+		// The latest root stays a virtual directory. It is still reported as
+		// a symlink by ReadLink/Lstat, but following it would bypass the
+		// overlay that carries the codename-based aliases.
+		if _, ok := v.latestRoots[path]; ok {
+			continue
+		}
+		target, ok := v.links[path]
+		if !ok {
+			target, ok = v.latestLinks[path]
+		}
 		if !ok {
 			continue
 		}
@@ -373,7 +391,10 @@ func (v *View) readLinkLocked(name string) (string, bool) {
 	if parent != "." {
 		path = parent + "/" + file
 	}
-	target, ok := v.links[path]
+	if target, ok := v.links[path]; ok {
+		return target, true
+	}
+	target, ok := v.latestLinks[path]
 	return target, ok
 }
 
@@ -437,11 +458,13 @@ func (v *View) ResolvePath(name string) (Resolution, bool) {
 		return Resolution{Entries: v.entriesLocked(name)}, true
 	}
 	if target, ok := v.readLinkLocked(name); ok {
-		path, ok := v.followLocked(name)
-		if !ok {
-			return Resolution{}, false
+		if _, root := v.latestRoots[name]; !root {
+			path, ok := v.followLocked(name)
+			if !ok {
+				return Resolution{}, false
+			}
+			return Resolution{Link: target, Target: path}, true
 		}
-		return Resolution{Link: target, Target: path}, true
 	}
 	path, ok := v.followLocked(name)
 	if !ok {
@@ -462,6 +485,9 @@ func (v *View) ResolvePath(name string) (Resolution, bool) {
 // build directories) are normalised to their materialised equivalent first.
 func (v *View) lookupLocked(name string) (canonicalObject, bool) {
 	if obj, ok := v.objects[name]; ok {
+		return obj, true
+	}
+	if obj, ok := v.latestObjects[name]; ok {
 		return obj, true
 	}
 	for _, alias := range v.layout.aliases(name) {
@@ -503,10 +529,15 @@ func (v *View) ensureLocked() {
 	if v.layout == LayoutCDImage {
 		addChecksumAliases(objects)
 	}
+	roots := make(map[string]string)
+	latestObjects := make(map[string]canonicalObject)
+	latestLinks := make(map[string]string)
 	links := make(map[string]string)
 	if v.layout == LayoutImages {
-		links = v.latestLinksLocked(objects)
-		addStableAliases(objects, links)
+		roots, latestObjects, latestLinks = v.latestOverlayLocked(objects)
+		for name, target := range roots {
+			links[name] = target
+		}
 	}
 	names := make([]string, 0, len(objects)+len(links))
 	for name := range objects {
@@ -516,20 +547,36 @@ func (v *View) ensureLocked() {
 		names = append(names, name)
 	}
 	slices.Sort(names)
+	latestNames := make([]string, 0, len(latestObjects)+len(latestLinks))
+	for name := range latestObjects {
+		latestNames = append(latestNames, name)
+	}
+	for name := range latestLinks {
+		latestNames = append(latestNames, name)
+	}
+	slices.Sort(latestNames)
 	v.objects = objects
 	v.links = links
 	v.names = names
+	v.latestRoots = roots
+	v.latestObjects = latestObjects
+	v.latestLinks = latestLinks
+	v.latestNames = latestNames
 	v.version = version
 	v.loaded = true
 }
 
-// latestLinksLocked returns the "latest" symlinks of the canonical layout. Each
-// series container gets a link to the newest release version in that series, so
-// clients can keep using an unchanging path while the link follows every new
-// point release.
-func (v *View) latestLinksLocked(objects map[string]canonicalObject) map[string]string {
-	links := make(map[string]string)
+// latestOverlayLocked builds the canonical layout's virtual latest folder. It
+// contains each product's newest release, plus codename-based aliases of that
+// release's artifacts. The aliases live only in this overlay, never in the real
+// release directories. latestRoots keeps the "latest" symlinks of each series
+// container.
+func (v *View) latestOverlayLocked(objects map[string]canonicalObject) (latestRoots map[string]string, latestObjects map[string]canonicalObject, latestLinks map[string]string) {
+	latestRoots = make(map[string]string)
+	latestObjects = make(map[string]canonicalObject)
+	latestLinks = make(map[string]string)
 	catalog := v.cat.Load()
+
 	for _, container := range v.idx.Containers() {
 		if legacyContainers[container] {
 			continue
@@ -542,26 +589,13 @@ func (v *View) latestLinksLocked(objects map[string]canonicalObject) map[string]
 		if !ok {
 			continue
 		}
-		name := container + "/" + latestSegment
-		if _, ok := objects[name]; ok {
-			continue
-		}
 		files, dirs := v.idx.Children(container, latest.String())
 		if len(files) == 0 && len(dirs) == 0 {
 			continue
 		}
-		links[name] = latest.String()
+		latestRoots[container+"/"+latestSegment] = latest.String()
 	}
-	return links
-}
 
-// addStableAliases adds the canonical layout's codename-based file aliases.
-// Every artifact gets a sibling symlink whose name carries the series codename
-// instead of the point release and build date, so
-// kubuntu_desktop_24.04.5_amd64_20240418.iso is also reachable as
-// kubuntu_desktop_noble_amd64.iso. Through the latest symlink that name stays
-// valid across point releases.
-func addStableAliases(objects map[string]canonicalObject, links map[string]string) {
 	names := make([]string, 0, len(objects))
 	for name := range objects {
 		names = append(names, name)
@@ -570,30 +604,53 @@ func addStableAliases(objects map[string]canonicalObject, links map[string]strin
 
 	for _, name := range names {
 		container, objectPath, _ := strings.Cut(name, "/")
-		if container == "" || objectPath == "" {
+		if container == "" || objectPath == "" || legacyContainers[container] {
 			continue
 		}
 		obj, ok := images.Parse(container, objectPath)
-		if !ok || obj.Project == "" {
+		if !ok {
+			continue
+		}
+		series, ok := obj.Series()
+		if !ok {
+			continue
+		}
+		// Ignore a stray object whose series is not the container's series.
+		if got, ok := catalog.ResolveContainer(container); !ok || got != series {
+			continue
+		}
+		latest, ok := catalog.Latest(series, obj.Product)
+		if !ok || obj.Release.Version.Compare(latest) != 0 {
+			continue
+		}
+		rest, ok := strings.CutPrefix(objectPath, obj.Release.String()+"/"+obj.Product+"/")
+		if !ok {
+			continue
+		}
+		latestPath := container + "/" + latestSegment + "/" + obj.Product + "/" + rest
+		latestObjects[latestPath] = objects[name]
+
+		if obj.Project == "" {
 			continue
 		}
 		alias := stableArtifactName(obj, container)
-		if alias == "" || alias == base(objectPath) {
+		if alias == "" || alias == base(rest) {
 			continue
 		}
-		dir := name[:strings.LastIndexByte(name, '/')+1]
+		dir := latestPath[:strings.LastIndexByte(latestPath, '/')+1]
 		path := dir + alias
 		if !fs.ValidPath(path) {
 			continue
 		}
-		if _, ok := objects[path]; ok {
+		if _, ok := latestObjects[path]; ok {
 			continue
 		}
-		if _, ok := links[path]; ok {
+		if _, ok := latestLinks[path]; ok {
 			continue
 		}
-		links[path] = base(objectPath)
+		latestLinks[path] = base(rest)
 	}
+	return latestRoots, latestObjects, latestLinks
 }
 
 // stableArtifactName rebuilds an artifact name with the series codename in
@@ -714,7 +771,21 @@ type virtualObject struct {
 	link string // non-empty when the entry is a symlink
 }
 
+// underLatestLocked reports whether name is a latest root or inside one.
+func (v *View) underLatestLocked(name string) bool {
+	for root := range v.latestRoots {
+		if name == root || strings.HasPrefix(name, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func (v *View) childrenLocked(name string) (files []virtualObject, dirs []string) {
+	names := v.names
+	if v.underLatestLocked(name) {
+		names = v.latestNames
+	}
 	prefix := strings.Trim(name, "/")
 	if prefix == "." {
 		prefix = ""
@@ -722,8 +793,8 @@ func (v *View) childrenLocked(name string) (files []virtualObject, dirs []string
 	if prefix != "" {
 		prefix += "/"
 	}
-	start, _ := slices.BinarySearch(v.names, prefix)
-	for _, n := range v.names[start:] {
+	start, _ := slices.BinarySearch(names, prefix)
+	for _, n := range names[start:] {
 		rest, ok := strings.CutPrefix(n, prefix)
 		if !ok {
 			break
@@ -739,7 +810,11 @@ func (v *View) childrenLocked(name string) (files []virtualObject, dirs []string
 		}
 		if obj, ok := v.objects[n]; ok {
 			files = append(files, virtualObject{name: n, obj: obj.object})
+		} else if obj, ok := v.latestObjects[n]; ok {
+			files = append(files, virtualObject{name: n, obj: obj.object})
 		} else if target, ok := v.links[n]; ok {
+			files = append(files, virtualObject{name: n, link: target})
+		} else if target, ok := v.latestLinks[n]; ok {
 			files = append(files, virtualObject{name: n, link: target})
 		}
 	}

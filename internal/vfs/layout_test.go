@@ -249,14 +249,17 @@ func TestViewImagesTree(t *testing.T) {
 	if got := readFile(t, v, "noble/24.04.5/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso"); got != "kubuntu" {
 		t.Errorf("kubuntu content = %q", got)
 	}
-	// Every artifact also has a codename-based sibling, and through latest that
-	// stable name follows the newest point release.
-	const stable = "noble/24.04.5/kubuntu/kubuntu_desktop_noble_amd64.iso"
+	// The codename-based alias exists only in the virtual latest folder, not
+	// beside the real artifact.
+	const stable = "noble/latest/kubuntu/kubuntu_desktop_noble_amd64.iso"
 	if got, err := fs.ReadLink(v, stable); err != nil || got != "kubuntu_desktop_24.04.5_amd64_20240418.iso" {
 		t.Errorf("ReadLink(%q) = %q, %v", stable, got, err)
 	}
-	if got := readFile(t, v, "noble/latest/kubuntu/kubuntu_desktop_noble_amd64.iso"); got != "kubuntu" {
+	if got := readFile(t, v, stable); got != "kubuntu" {
 		t.Errorf("stable latest content = %q", got)
+	}
+	if _, err := fs.Lstat(v, "noble/24.04.5/kubuntu/kubuntu_desktop_noble_amd64.iso"); err == nil {
+		t.Error("codename-based alias leaked into the real release folder")
 	}
 	if got := readFile(t, v, "resolute/26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso"); got != "resolute-desktop" {
 		t.Errorf("resolute content = %q", got)

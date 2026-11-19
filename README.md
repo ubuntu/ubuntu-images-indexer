@@ -137,25 +137,20 @@ same layout logic drives both the HTTP and rsync listeners.
 
 ### Latest permalinks
 
-The canonical layout exposes a `latest` symlink in every series container,
-`{container}/latest`, pointing at the newest release version in that series —
-for example, `noble/latest -> 24.04.5`. The link is rebuilt with every index
-refresh, so clients can keep using the same path while it follows each new point
-release. On rsync it is a real symlink (preserved with `-l`); on HTTP it is
-rendered as an ordinary link and requests are redirected (302) to the current
-target, straight to the object store when that target names an object.
+The canonical layout exposes a virtual `latest` folder in every series
+container, `{container}/latest`. It is reported as a symlink (so rsync sees a
+real link to the series' newest release version, e.g. `noble/latest -> 24.04.5`,
+and preserves it with `-l`), but its contents are materialised per product. That
+way products that lag the series' newest overall release still have a working
+latest path.
 
-Each artifact also has a codename-based sibling, with the point release and
-build date replaced by the series codename: for example,
+Inside `latest`, every artifact also appears under a codename-based name with
+the point release and build date removed: for example,
 `kubuntu_desktop_24.04.5_amd64_20240418.iso` is also available as
-`kubuntu_desktop_noble_amd64.iso`. Combined with the `latest` symlink, that
-gives a stable path to the newest image:
+`kubuntu_desktop_noble_amd64.iso`. These aliases exist only in the virtual
+latest folder, never in the real version directories. That gives a stable path
+to the newest image:
 `noble/latest/kubuntu/kubuntu_desktop_noble_amd64.iso`.
-
-HTTP also answers a synthetic `latest` release segment for a specific product,
-`{container}/latest/{product}/...`, redirecting (302) to the newest release of
-that product in the series. For example, `/noble/latest/ubuntu/` redirects to
-`/noble/24.04.5/ubuntu/`.
 
 ## Testing
 

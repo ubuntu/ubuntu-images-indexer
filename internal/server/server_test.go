@@ -112,8 +112,9 @@ func TestSubdirListing(t *testing.T) {
 	}
 }
 
-// TestLatestRedirect checks the virtual "latest" permalink: a file redirects
-// straight to the object store, a directory to the concrete tree path.
+// TestLatestRedirect checks the virtual "latest" permalink: files redirect
+// straight to the object store and the latest folder stays virtual so the
+// codename-based aliases remain visible only there.
 func TestLatestRedirect(t *testing.T) {
 	st := fakeStorage{objects: map[string][]storage.Object{
 		"noble": {
@@ -133,17 +134,19 @@ func TestLatestRedirect(t *testing.T) {
 		t.Errorf("file Location = %q", loc)
 	}
 
+	// The latest folder is virtual: it lists the newest artifacts instead of
+	// redirecting into a real version directory.
 	rec = httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/noble/latest/ubuntu/", nil))
-	if rec.Code != http.StatusFound {
-		t.Fatalf("dir status = %d, want 302", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("dir status = %d, want 200", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "/noble/24.04.5/ubuntu" {
-		t.Errorf("dir Location = %q", loc)
+	if body := rec.Body.String(); !strings.Contains(body, "ubuntu_desktop_24.04.5_amd64_20240418.iso.sha256") {
+		t.Errorf("latest directory listing missing newest artifact: %s", body)
 	}
 
-	// A codename-based virtual file follows the latest symlink and then its
-	// own target, so it redirects straight to the real object.
+	// A codename-based virtual file follows its own target, so it redirects
+	// straight to the real object.
 	rec = httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/noble/latest/kubuntu/kubuntu_desktop_noble_amd64.iso", nil))
 	if rec.Code != http.StatusFound {
@@ -153,21 +156,25 @@ func TestLatestRedirect(t *testing.T) {
 		t.Errorf("stable file Location = %q", loc)
 	}
 
-	// HTTP has no symlinks, so the canonical latest link is just a normal
-	// redirect to its target, and the listing links to that target.
 	rec = httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/noble/latest", nil))
-	if rec.Code != http.StatusFound {
-		t.Fatalf("latest status = %d, want 302", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("latest status = %d, want 200", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "/noble/24.04.5" {
-		t.Errorf("latest Location = %q", loc)
+	if body := rec.Body.String(); !strings.Contains(body, ">kubuntu/</a>") {
+		t.Errorf("latest folder missing product directory: %s", body)
+	}
+
+	rec = httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/noble/latest/kubuntu/", nil))
+	if body := rec.Body.String(); !strings.Contains(body, "kubuntu_desktop_noble_amd64.iso") {
+		t.Errorf("latest listing missing codename-based alias: %s", body)
 	}
 
 	rec = httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/noble/", nil))
 	body := rec.Body.String()
-	if !strings.Contains(body, `href="/noble/24.04.5/"`) || !strings.Contains(body, ">latest/</a>") {
+	if !strings.Contains(body, `href="/noble/latest/"`) || !strings.Contains(body, ">latest/</a>") {
 		t.Errorf("listing missing latest link: %s", body)
 	}
 }
