@@ -373,6 +373,9 @@ func (v *View) ensureLocked() {
 			}
 		}
 	}
+	if v.layout == LayoutCDImage {
+		addChecksumAliases(objects)
+	}
 	names := make([]string, 0, len(objects))
 	for name := range objects {
 		names = append(names, name)
@@ -382,6 +385,67 @@ func (v *View) ensureLocked() {
 	v.names = names
 	v.version = version
 	v.loaded = true
+}
+
+// addChecksumAliases materialises the folder-level checksum files the old
+// cdimage tree kept next to every set of images: SHA256SUMS and SHA256SUMS.gpg.
+// The canonical tree keeps a checksum per artifact instead, so each alias takes
+// the first artifact checksum, in name order, whose image is served in the same
+// directory. A real SHA256SUMS object in the canonical tree is left untouched.
+func addChecksumAliases(objects map[string]canonicalObject) {
+	names := make([]string, 0, len(objects))
+	for name := range objects {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+
+	sums := make(map[string]canonicalObject)
+	signatures := make(map[string]canonicalObject)
+	for _, name := range names {
+		i := strings.LastIndexByte(name, '/')
+		if i < 0 {
+			continue
+		}
+		dir, file := name[:i+1], name[i+1:]
+		image, ok := checksumImage(file)
+		if !ok {
+			continue
+		}
+		if _, ok := objects[dir+image]; !ok {
+			continue
+		}
+		switch {
+		case strings.HasSuffix(file, ".sha256.gpg"):
+			if _, ok := signatures[dir]; !ok {
+				signatures[dir] = objects[name]
+			}
+		case strings.HasSuffix(file, ".sha256"):
+			if _, ok := sums[dir]; !ok {
+				sums[dir] = objects[name]
+			}
+		}
+	}
+	for dir, obj := range sums {
+		if _, ok := objects[dir+"SHA256SUMS"]; !ok {
+			objects[dir+"SHA256SUMS"] = obj
+		}
+	}
+	for dir, obj := range signatures {
+		if _, ok := objects[dir+"SHA256SUMS.gpg"]; !ok {
+			objects[dir+"SHA256SUMS.gpg"] = obj
+		}
+	}
+}
+
+// checksumImage returns the image name a per-artifact checksum file belongs to.
+func checksumImage(file string) (string, bool) {
+	if image, ok := strings.CutSuffix(file, ".sha256.gpg"); ok {
+		return image, true
+	}
+	if image, ok := strings.CutSuffix(file, ".sha256"); ok {
+		return image, true
+	}
+	return "", false
 }
 
 // latestSegment is the synthetic path segment naming the newest release of a

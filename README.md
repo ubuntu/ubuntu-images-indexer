@@ -59,7 +59,9 @@ spread across containers (one per series, named after the series codename). The
 rsync listener exposes that tree through one module per legacy layout:
 
 - `cdimage` presents the old `cdimage.ubuntu.com` tree, projecting a canonical
-  object onto paths such as `ubuntu/releases/noble/release/...`;
+  object onto paths such as `ubuntu/releases/noble/release/...`. Every directory
+  that serves images also exposes `SHA256SUMS` and `SHA256SUMS.gpg`, aliasing
+  the first per-artifact checksum served there, as the old tree did;
 - `releases` presents the old `releases.ubuntu.com` tree, projecting onto paths
   such as `24.04/ubuntu-...iso`;
 - `images` exposes the canonical tree unchanged, but keeps each object's

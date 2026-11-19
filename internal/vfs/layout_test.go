@@ -70,14 +70,17 @@ func newLayoutView(t *testing.T, layout Layout) *View {
 	// {release}/{product}/{path}.
 	content := map[string]map[string]string{
 		"noble": {
-			"24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso":        "desktop",
-			"24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso":        "noble-desktop",
-			"24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso.sha256": "sums",
-			"24.04/ubuntu-server/ubuntu-server_live_24.04_amd64_20240418.iso": "server",
-			"24.04/ubuntu-core/ubuntu_core_24_amd64_20240419.img.xz":          "core",
-			"24.04/netboot/amd64/linux":                                       "kernel",
-			"24.04.3/ubuntu-base/ubuntu-base_24.04.3_amd64_20240418.tar.gz":   "base",
-			"24.04.5/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso":      "kubuntu",
+			"24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso":            "desktop",
+			"24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso":            "noble-desktop",
+			"24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso.sha256":     "sums",
+			"24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso.sha256.gpg": "signed sums",
+			"24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso.sha256":     "sums5",
+			"24.04.5/ubuntu/ubuntu_desktop_24.04.5_amd64_20240418.iso.sha256.gpg": "signed sums5",
+			"24.04/ubuntu-server/ubuntu-server_live_24.04_amd64_20240418.iso":     "server",
+			"24.04/ubuntu-core/ubuntu_core_24_amd64_20240419.img.xz":              "core",
+			"24.04/netboot/amd64/linux":                                           "kernel",
+			"24.04.3/ubuntu-base/ubuntu-base_24.04.3_amd64_20240418.tar.gz":       "base",
+			"24.04.5/kubuntu/kubuntu_desktop_24.04.5_amd64_20240418.iso":          "kubuntu",
 		},
 		"resolute": {
 			"26.04.1/ubuntu/ubuntu_desktop_26.04.1_amd64_20260418.iso": "resolute-desktop",
@@ -109,6 +112,8 @@ func TestViewResolve(t *testing.T) {
 		{LayoutImages, "noble/24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso", "noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso"},
 		{LayoutReleases, "24.04/ubuntu-24.04.3-desktop-amd64.iso", "noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso"},
 		{LayoutCDImage, "ubuntu/releases/24.04/release/ubuntu-24.04.3-desktop-amd64.iso", "noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso"},
+		{LayoutCDImage, "ubuntu/releases/24.04/release/SHA256SUMS", "noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso.sha256"},
+		{LayoutCDImage, "ubuntu/releases/24.04/release/SHA256SUMS.gpg", "noble", "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso.sha256.gpg"},
 	}
 	for _, tc := range cases {
 		v := newLayoutView(t, tc.layout)
@@ -136,13 +141,21 @@ func TestViewCDImageTree(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	for _, want := range []string{"ubuntu-24.04.3-desktop-amd64.iso.sha256", "ubuntu-24.04.3-desktop-amd64.iso", "ubuntu-24.04.5-desktop-amd64.iso"} {
+	for _, want := range []string{"SHA256SUMS", "SHA256SUMS.gpg", "ubuntu-24.04.3-desktop-amd64.iso.sha256", "ubuntu-24.04.3-desktop-amd64.iso", "ubuntu-24.04.5-desktop-amd64.iso"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("release entries = %v, missing %q", names, want)
 		}
 	}
 	if got := readFile(t, v, "ubuntu/releases/24.04/release/ubuntu-24.04.3-desktop-amd64.iso"); got != "desktop" {
 		t.Errorf("content = %q", got)
+	}
+	// The folder-level checksums alias the first per-artifact one, in name
+	// order, as the old cdimage tree served them in every image folder.
+	if got := readFile(t, v, "ubuntu/releases/24.04/release/SHA256SUMS"); got != "sums" {
+		t.Errorf("SHA256SUMS content = %q", got)
+	}
+	if got := readFile(t, v, "ubuntu/releases/24.04/release/SHA256SUMS.gpg"); got != "signed sums" {
+		t.Errorf("SHA256SUMS.gpg content = %q", got)
 	}
 	if got := readFile(t, v, "ubuntu-server/noble/daily-live/current/noble-live-server-amd64.iso"); got != "server" {
 		t.Errorf("daily content = %q", got)
@@ -152,6 +165,46 @@ func TestViewCDImageTree(t *testing.T) {
 	}
 	if got := readFile(t, v, "netboot/noble/amd64/linux"); got != "kernel" {
 		t.Errorf("netboot content = %q", got)
+	}
+}
+
+// TestViewChecksumAliases checks that folder-level checksums are only
+// synthesised by the cdimage layout, and only beside an image they belong to.
+func TestViewChecksumAliases(t *testing.T) {
+	st := fakeStorage{
+		objects: map[string][]storage.Object{
+			"noble": {
+				{Name: "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso"},
+				{Name: "24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso.sha256"},
+				{Name: "24.04.3/lubuntu/lubuntu_desktop_24.04.3_amd64_20240418.iso.sha256"},
+			},
+		},
+		content: map[string]string{"noble/24.04.3/ubuntu/ubuntu_desktop_24.04.3_amd64_20240418.iso.sha256": "sums"},
+	}
+	idx := index.New()
+	if err := idx.Refresh(context.Background(), st); err != nil {
+		t.Fatal(err)
+	}
+	cat := NewCatalog(idx)
+
+	cdimage := cat.View(context.Background(), st, LayoutCDImage)
+	if got := readFile(t, cdimage, "ubuntu/releases/24.04/release/SHA256SUMS"); got != "sums" {
+		t.Errorf("cdimage SHA256SUMS content = %q", got)
+	}
+	if _, err := fs.Stat(cdimage, "lubuntu/releases/24.04/release/SHA256SUMS"); err == nil {
+		t.Error("cdimage synthesised SHA256SUMS without an image")
+	}
+	if _, err := fs.Stat(cdimage, "ubuntu/releases/24.04/release/SHA256SUMS.gpg"); err == nil {
+		t.Error("cdimage synthesised SHA256SUMS.gpg without a signature")
+	}
+
+	releases := cat.View(context.Background(), st, LayoutReleases)
+	if _, err := fs.Stat(releases, "24.04/SHA256SUMS"); err == nil {
+		t.Error("releases layout synthesised SHA256SUMS")
+	}
+	images := cat.View(context.Background(), st, LayoutImages)
+	if _, err := fs.Stat(images, "noble/24.04.3/ubuntu/SHA256SUMS"); err == nil {
+		t.Error("images layout synthesised SHA256SUMS")
 	}
 }
 
